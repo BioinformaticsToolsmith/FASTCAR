@@ -5,6 +5,7 @@
  *      Author: Hani Zakaria Girgis, PhD - NCBI/NLM/NIH
  */
 #include "Chromosome.h"
+#include <errno.h>
 
 Chromosome::Chromosome() {
 	header = string("");

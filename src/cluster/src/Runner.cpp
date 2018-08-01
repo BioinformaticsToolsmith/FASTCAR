@@ -67,7 +67,7 @@ int Runner::run()
 {
 	vector<std::pair<std::string,std::string*> > sequences;
 	uintmax_t total_length = 0;
-	largest_count = 0;
+	long l_largest_count = 0;
 	Progress progress(files.size(), "Reading in sequences");
 	for (auto i = 0; i < files.size(); i++) {
 		auto f = files.at(i);
@@ -86,7 +86,7 @@ int Runner::run()
 	double avg_length = (double)total_length / sequences.size();
 	k = std::max((int)(ceil(log(avg_length) / log(4)) - 1), 2);
 	cout << "K: " << k << endl;
-#pragma omp parallel for reduction(max:largest_count)
+#pragma omp parallel for reduction(max:l_largest_count)
 	for (size_t i = 0; i < sequences.size(); i++) {
 		std::vector<uint64_t> values;
 		KmerHashTable<unsigned long, uint64_t> table(k, 1);
@@ -98,12 +98,12 @@ int Runner::run()
 				l_count = elt;
 			}
 		}
-		if (l_count > largest_count) {
-			largest_count = l_count;
+		if (l_count > l_largest_count) {
+			l_largest_count = l_count;
 		}
 		values.clear();
 	}
-	largest_count *= 2;
+	largest_count = 2 * l_largest_count;
 	mem_used("sequences read in");
 	if (largest_count <= std::numeric_limits<uint8_t>::max()) {
 		cout << "Using 8 bit histograms" << endl;
