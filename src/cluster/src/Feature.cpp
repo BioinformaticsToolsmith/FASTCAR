@@ -9,14 +9,13 @@
  * exist because I was lazy and couldn't get
  * anonymous functions to work with the hashing
  */
-#include "Feature.h"
-#include "DivergencePoint.h"
-#include <cmath>
-#include <numeric>
-#include <algorithm>
-#include <limits>
-#include "../../utility/GlobAlignE.h"
 
+#include <map>
+#include <iterator>
+#include <algorithm>
+#include "Feature.h"
+
+using namespace std;
 
 template<class T>
 Feature<T>::Feature(const Feature<T>& feat_) : k(feat_.get_k())
@@ -102,7 +101,7 @@ Feature<T> Feature<T>::operator=(const Feature<T>& feat_)
 template<class T>
 void Feature<T>::add_feature(uint64_t f_flags, Combo combo)
 {
-//	cout << "Adding combo " << f_flags << endl;
+	//	cout << "Adding combo " << f_flags << endl;
 	if (combo != Combo::xy && combo != Combo::x2y && combo != Combo::xy2 && combo != Combo::x2y2) {
 		throw "invalid combo";
 	}
@@ -138,6 +137,13 @@ void Feature<T>::normalize_cache(vector<double> &cache) const
 {
 	for (size_t i = 0; i < lookup.size(); i++) {
 		double val = (cache[i] - mins[i]) / (maxs[i] - mins[i]);
+
+		// Hani Z. Girgis added this test
+		if(isnan(val)){
+			cerr << "Got NAN from max " << maxs[i] << " min " << mins[i] << endl;
+			throw std::exception();
+		}
+
 		if (is_sims[i]) {
 			cache[i] = val;
 		} else {
@@ -172,6 +178,32 @@ void Feature<T>::set_normal(uint64_t single_flag, double min_, double max_)
 	is_finalized.at(idx) = true;
 }
 
+/*
+template<class T>
+vector<double> Feature<T>::get_raw(const vector<pair<Point<T>*,Point<T>*> > &vec, int index) const
+{
+	std::vector<double> results(vec.size(), 0);
+	auto func = raw_funcs[index];
+
+	#pragma omp parallel for
+	for (size_t i = 0; i < vec.size(); i++) {
+		results[i] = func(*vec[i].first, *vec[i].second);
+	}
+
+	double vmin, vmax;
+        auto mm = std::minmax_element(results.begin(), results.end());
+	vmin = *(mm.first);
+	vmax = *(mm.second);
+	for (auto &v : results) {
+		v = (v - vmin) / (vmax - vmin);
+		if (! is_sims[index]) {
+			v = 1 - v;
+		}
+	}
+	return results;
+}
+*/
+
 template<class T>
 void Feature<T>::normalize(const vector<pra<T> > &pairs)
 {
@@ -203,6 +235,27 @@ void Feature<T>::normalize(const vector<pra<T> > &pairs)
 
 		mins[i] = small;
 		maxs[i] = big;
+
+		// Hani Z. Girgis added this tests
+		if(abs(maxs[i] - mins[i]) <= 0.000000001){
+			cerr << "Error of feature: " << feat_names().at(i) << ". ";
+			cerr << "The maximum distance cannot be zero.";
+			cerr << endl;
+			throw std::exception();
+		}
+
+		if(isinf(maxs[i])){
+			cerr << "Error of feature: " << feat_names().at(i) << ". ";
+			cerr << "Maximum is " << maxs[i] << endl;
+			throw std::exception();
+		}
+
+		if(isinf(mins[i])){
+			cerr << "Error of feature: " << feat_names().at(i) << ". ";
+			cerr << "Minimum is " << mins[i] << endl;
+			throw std::exception();
+		}
+
 	}
 };
 
@@ -548,7 +601,8 @@ bool Feature<T>::feat_is_sim(uint64_t single_flag) const
 		is_sim = false;
 		break;
 	case FEAT_SPEARMAN:
-		is_sim = true;
+		is_sim = false; // Hani Z. Girgis modified the boolean
+		//is_sim = true;
 		break;
 	case FEAT_JACCARD:
 		is_sim = true;
@@ -710,6 +764,7 @@ double Feature<T>::intersection(Point<T> &a, Point<T> &b)
 	for (auto i = 0; i < N; i++) {
 		dist += 2 * std::min(p.points[i], q.points[i]);
 	}
+
 	return (double)dist / (double)mag;
 }
 
@@ -874,6 +929,11 @@ double Feature<T>::c_n2rrc(Point<T>& a, Point<T>& b) {
 template<class T>
 double Feature<T>::n2rrc(Point<T>& a, Point<T>& b) const
 {
+	if(!Util::isDna){
+		cerr << "n2rrc cannot be calculated on protein sequences." << endl;
+		throw std::exception();
+	}
+
 	const DivergencePoint<T>& p = dynamic_cast<const DivergencePoint<T>&>(a);
 	const DivergencePoint<T>& q = dynamic_cast<const DivergencePoint<T>&>(b);
 	const auto N = p.points.size();
@@ -921,7 +981,7 @@ double Feature<T>::jensen_shannon(Point<T> &a, Point<T> &b) const
 	uint64_t mq = q.getPseudoMagnitude();
 	double sum = 0;
 	const auto N = p.points.size();
-        #pragma omp simd reduction(+:sum)
+    #pragma omp simd reduction(+:sum)
 	for (auto i = 0; i < N; i++) {
 		double pp = (double)p.points[i] / mp;
 		double pq = (double)q.points[i] / mq;
@@ -955,22 +1015,27 @@ double Feature<T>::c_rre_k_r(Point<T>& a, Point<T>& b) {
 	}
 }
 
+// This statistics uses conditional probability
+// Modified by Hani Z. Girgis on Oct 7 2018 to enable processing protein sequences
 template<class T>
 double Feature<T>::rre_k_r(Point<T>& a, Point<T>& b)
 {
 	const DivergencePoint<T>& p = dynamic_cast<const DivergencePoint<T>&>(a);
 	const DivergencePoint<T>& q = dynamic_cast<const DivergencePoint<T>&>(b);
 	const auto N = p.points.size();
+	const auto A = Util::getAlphabetSize();
+
 	double op = 0, oq = 0;
-	const double l4 = log(4);
+	const double l4 = log(A);
 	uint64_t sum4_p = 0, sum4_q = 0;
+
 	for (auto i = 0; i < N; i++) {
 		sum4_p += p.points[i];
 		sum4_q += q.points[i];
-		if (i % 4 == 3) {
+		if (i % A == (A-1)) {
 			double inner_sum_p = 0;
 			double inner_sum_q = 0;
-			for (auto j = i - 3; j <= i; j++) {
+			for (auto j = i - (A-1); j <= i; j++) {
 				double conditional_p = (double)p.points[j] / sum4_p;
 				double conditional_q = (double)q.points[j] / sum4_q;
 				double avg = 0.5 * (conditional_p + conditional_q);
@@ -985,7 +1050,8 @@ double Feature<T>::rre_k_r(Point<T>& a, Point<T>& b)
 			sum4_q = 0;
 		}
 	}
-        double val = 0.5 * (op + oq);
+
+    double val = 0.5 * (op + oq);
 	return val;
 }
 
@@ -1165,7 +1231,24 @@ double Feature<T>::jefferey_divergence(Point<T>& a, Point<T>& b)
 	for (auto i = 0; i < N; i++) {
 		double pp = (double)p.points[i] / mp;
 		double pq = (double)q.points[i] / mq;
+		// if (q.points[i] == 0) {
+		// 	cout << "Error for sequence " << q.get_header() << endl;
+		// 	for (int j = 0; j < q.points.size(); j++) {
+		// 		cout << q.points.at(j) << " ";
+		// 	}
+		// 	cout << endl;
+		// 	exit(1);
+		// }
+		// if (p.points[i] == 0) {
+		// 	cout << "Error for sequence " << p.get_header() << endl;
+		// 	for (int j = 0; j < p.points.size(); j++) {
+		// 		cout << (int)p.points.at(j) << " ";
+		// 	}
+		// 	cout << endl;
+		// 	exit(1);
+		// }
 		double diff = pp - pq;
+		//	cout << "pp: " << pp << " pq: " << pq << " pp/pq: " << pp / pq << endl;
 	        sum += diff * log(pp / pq);
 	}
 	return sum;
@@ -1219,21 +1302,26 @@ double Feature<T>::c_kl_conditional(Point<T>& a, Point<T>& b) {
 	}
 }
 
+// Modified by Hani Z Girgis on Oct 7 2018.
 template<class T>
 double Feature<T>::kl_conditional(Point<T>& a, Point<T>& b)
 {
 	const DivergencePoint<T>& p = dynamic_cast<const DivergencePoint<T>&>(a);
 	const DivergencePoint<T>& q = dynamic_cast<const DivergencePoint<T>&>(b);
-	uint64_t sum4_p = 0,    sum4_q = 0;            // Sum for every 4 nucleotides
+	uint64_t sum4_p = 0,    sum4_q = 0;            // Sum for every 4 nucleotides or 22 a.a.
 	double outer_sum_p = 0, outer_sum_q = 0;       // Prior K-mer sum
+
 	const auto N = p.points.size();
+	const auto A = Util::getAlphabetSize();
+
 	for (auto i = 0; i < N; i++) {
 		sum4_p += p.points[i];
 		sum4_q += q.points[i];
-		if (i % 4 == 3) { //finished counting word, now compute probabilities
+
+		if (i % A == A-1) { //finished counting word, now compute probabilities
 			double inner_sum_p = 0;        // Sum of p(X|Y) * log(p(X|Y) / q(X|Y))
 			double inner_sum_q = 0;        // Sum of q(X|Y) * log(q(X|Y) / p(X|Y))
-			for (auto j = i - 3; j <= i; j++) {
+			for (auto j = i - (A-1); j <= i; j++) {
 				double conditional_p = (double)p.points[j] / sum4_p;
 				double conditional_q = (double)q.points[j] / sum4_q;
 				double lg = log(conditional_p / conditional_q);
@@ -1273,20 +1361,26 @@ double Feature<T>::markov(Point<T>& a, Point<T>& b)
 	const DivergencePoint<T>& q = dynamic_cast<const DivergencePoint<T>&>(a);
 	const DivergencePoint<T>& p = dynamic_cast<const DivergencePoint<T>&>(b);
 	double total = 0;       // Prior K-mer sum
+
+	// Hani Z. Girgis modified this code on Oct 2 2018
+	// to adapt this feature to proteins
 	const auto N = p.points.size();
-	for (auto i = 0; i < N; i += 4) {
+	const auto A = Util::getAlphabetSize();
+
+	for (auto i = 0; i < N; i += A) {
 		uint64_t psum = 0, qsum = 0;
-		for (auto j = 0; j < 4; j++) {
+		for (auto j = 0; j < A; j++) {
 			psum += p.points[i+j];
 			qsum += q.points[i+j];
 		}
 		double lpsum = log(psum);
 		double lqsum = log(qsum);
-		for (auto j = 0; j < 4; j++) {
+		for (auto j = 0; j < A; j++) {
 			total += (q.points[i+j]-1) * (log(p.points[i+j]) - lpsum);
 			total += (p.points[i+j]-1) * (log(q.points[i+j]) - lqsum);
 		}
-        }
+    }
+
 	return total / 2;
 }
 
@@ -1319,7 +1413,7 @@ double Feature<T>::d2z(Point<T>& a, Point<T>& b)
 		double pz = (p.points[i] - ap) / sp;
 		double qz = (q.points[i] - aq) / sq;
 		sum += pz * qz;
-        }
+    }
 	return sum;
 }
 
@@ -1415,16 +1509,74 @@ double Feature<T>::emd(Point<T>& a, Point<T>& b)
 	return (double)dist;
 }
 
+// Commented by Hani Z. Girgis
+// template<class T>
+// std::vector<size_t> tiedrank(const Point<T>& a)
+// {
+// 	const DivergencePoint<T>& p = dynamic_cast<const DivergencePoint<T>&>(a);
+// 	const auto N = p.points.size();
+// 	vector<size_t> ip(N, 0);
+// 	std::iota(std::begin(ip), std::end(ip), 0);
+// 	std::sort(std::begin(ip), std::end(ip), [&](size_t x, size_t y) {
+// 			return p.points[x] < p.points[y];
+// 	});
+
+// 	for(auto elm : ip){
+// 		cerr << elm << endl;
+// 	}
+// 	exit(9);
+// 	return ip;
+// }
+
+// Added by Hani Z. Girgis
 template<class T>
-std::vector<size_t> tiedrank(const Point<T>& a)
-{
+std::vector<double> tiedrank(const Point<T>& a){
+	// Initialize multimap
 	const DivergencePoint<T>& p = dynamic_cast<const DivergencePoint<T>&>(a);
-	const auto N = p.points.size();
-	vector<size_t> ip(N, 0);
-	std::iota(std::begin(ip), std::end(ip), 0);
-	std::sort(std::begin(ip), std::end(ip), [&](size_t x, size_t y) {
-			return p.points[x] < p.points[y];
-		});
+	unsigned int n = p.points.size();
+
+	std::multimap<T, double > mmap;
+	for(unsigned i = 0; i < n; i++){
+		mmap.insert(pair<T,double>( p.points[i] , i));
+	}
+
+	// Set ranks without ties
+	int lastRank = 0;
+	// std::multimap<T,double>::iterator
+	for (auto it=mmap.begin(); it!=mmap.end(); ++it){
+	 	(*it).second = ++lastRank;
+	}
+
+	for (auto it=mmap.begin(); it!=mmap.end(); it=mmap.upper_bound((*it).first)){
+	 	auto ret = mmap.equal_range((*it).first);
+
+    	// Calculate the average rank
+    	double rankTotal = 0;
+    	double count = 0;
+    	for (auto it1=ret.first; it1 != ret.second; ++it1){
+    		count++;
+    		rankTotal += (*it1).second;
+    	}
+
+    	// Assign the average rank
+    	double meanRank = rankTotal / count;
+    	for (auto it1=ret.first; it1 != ret.second; ++it1){
+    		(*it1).second = meanRank;
+    		// cout << (*it).first << " => " << (*it1).second << endl;
+    	}
+	}
+
+	std::vector<double> r(n, 0);
+	for(unsigned int i = 0; i < n; i++){
+		r[i] = mmap.find(p.points[i])->second;
+	}
+
+	// For testing
+	// for(unsigned int i = 0; i < n; i++){
+	// 	cout << r[i] << endl;
+	// }
+
+	return r;
 }
 
 template<class T>
@@ -1442,6 +1594,7 @@ double Feature<T>::c_spearman(Point<T>& a, Point<T>& b) {
 	}
 }
 
+/*
 template<class T>
 double Feature<T>::spearman(Point<T>& a, Point<T>& b)
 {
@@ -1455,9 +1608,7 @@ double Feature<T>::spearman(Point<T>& a, Point<T>& b)
 	std::sort(std::begin(ip), std::end(ip), [&](size_t x, size_t y) {
 			return p.points[x] < p.points[y];
 		});
-	std::sort(std::begin(iq), std::end(iq), [&](size_t x, size_t y) {
-			return q.points[x] < q.points[y];
-		});
+
 	double expected = (N+1) / 2.0;
 	double cov = 0;
 	double sp = 0;
@@ -1466,8 +1617,41 @@ double Feature<T>::spearman(Point<T>& a, Point<T>& b)
 		cov += (ip[i] - expected) * (iq[i] - expected);
 		sp += (ip[i] - expected) * (ip[i] - expected);
 		sq += (iq[i] - expected) * (iq[i] - expected);
-        }
-	return (N * cov) / (sp * sq);
+    }
+
+    cout << "N: "   << N   << endl;
+    cout << "Cov: " << cov << endl;
+    cout << "Sp: "  << sp  << endl;
+    cout << "Sq: "  << sq  << endl;
+
+    double results = (N * cov) / (sp * sq);
+
+	return log(results);
+}
+*/
+
+
+
+template<class T>
+double Feature<T>::spearman(Point<T>& a, Point<T>& b)
+{
+	vector<double> ip = tiedrank(a);
+	vector<double> iq = tiedrank(b);
+	const auto N = iq.size();
+
+	double expected = (N+1) / 2.0;
+	double cov = 0;
+	double sp = 0;
+	double sq = 0;
+	for (auto i = 0; i < N; i++) {
+		cov += (ip[i] - expected) * (iq[i] - expected);
+		sp += (ip[i] - expected) * (ip[i] - expected);
+		sq += (iq[i] - expected) * (iq[i] - expected);
+    }
+
+    double result = 1 - ( cov / ( sqrt(sp) * sqrt(sq) ));
+    // cerr << result << endl;
+	return result;
 }
 
 template<class T>
@@ -1515,13 +1699,25 @@ double Feature<T>::c_d2s(Point<T>& a, Point<T>& b) {
 	}
 }
 
+// Modified by Hani Z. Girgis on Oct 07 2018 to enable comparing protein sequences
+// Note: This feature cannot be used if k is 1.
 template<class T>
 double Feature<T>::d2s(Point<T>& a, Point<T>& b)
 {
 	const DivergencePoint<T>& p = dynamic_cast<const DivergencePoint<T>&>(a);
 	const DivergencePoint<T>& q = dynamic_cast<const DivergencePoint<T>&>(b);
 	const auto N = p.points.size();
-	const int k = (int)(log(N) / log(4));
+	const auto A = Util::getAlphabetSize();
+
+	// Commented out by Hani Z Girgis and replaced by the line next to it.
+	// const int k = (int)(log(N) / log(4));
+	int k = a.getK();
+	if(k==1){
+		cerr << "D2s is skipped because it cannot be applied when k is 1.";
+		cerr << endl;
+		throw std::exception();
+	}
+
 	const auto p1 = p.get_1mers();
 	const auto q1 = q.get_1mers();
 	const double pmag = p.getPseudoMagnitude();
@@ -1529,20 +1725,126 @@ double Feature<T>::d2s(Point<T>& a, Point<T>& b)
 	double sum = 0;
 	for (size_t i = 0; i < N; i++) {
 		double p1i = 1;
-	        double q1i = 1;
-	        size_t idx = i;
+	    double q1i = 1;
+	    size_t idx = i;
 		for (int j = 0; j < k; j++) {
-			int i1 = idx % 4;
-			idx /= 4;
+			int i1 = idx % A;
+			idx /= A;
 			p1i *= (double)p1[i1] / pmag;
 			q1i *= (double)q1[i1] / qmag;
 		}
-		double hp = p.points[i] - pmag * p1i;
-		double hq = q.points[i] - qmag * q1i;
-		if (hp != 0 && hq != 0) {
-			sum += hp * hq / hypot(hp, hq);
+
+		// Post conditions the probabilities
+		if(p1i > 1 || p1i < 0){
+			cerr << "p1i is too big or too small." << endl;
+			throw std::exception();
+		}
+		if(q1i > 1 || q1i < 0){
+			cerr << "pq1i is too big or too small." << endl;
+			throw std::exception();
+		}
+
+		//double hp = p.points[i] - pmag * p1i;
+		//double hq = q.points[i] - qmag * q1i;
+		double hp = p.points[i] - (p.getRealMagnitude() * p1i + 1);
+		double hq = q.points[i] - (q.getRealMagnitude() * q1i + 1);
+		double denom = hypot(hp, hq);
+		if (denom != 0 ) {
+			sum += (hp * hq) / denom;
 		}
 	}
+	return sum;
+}
+
+template<class T>
+double Feature<T>::c_d2_star(Point<T>& a, Point<T>& b) {
+
+	auto aid = a.get_id();
+	auto bid = b.get_id();
+	auto tup = std::tuple<uintmax_t, uintmax_t, uint8_t>(aid, bid, Feature<T>::log2(FEAT_D2_star));
+	if (ltable.find(tup) == ltable.end()) {
+		double val = d2_star(a, b);
+		ltable.insert({tup, val});
+		return val;
+	} else {
+		return ltable.at(tup);
+	}
+}
+
+// Modified by Hani Z. Girgis on Oct 07 2018 to enable comparing protein sequences
+// This method is rewriten based on the d2s code.
+// Note: This feature cannot be used if k is 1.
+template<class T>
+double Feature<T>::d2_star(Point<T>& a, Point<T>& b)
+{
+	const DivergencePoint<T>& p = dynamic_cast<const DivergencePoint<T>&>(a);
+	const DivergencePoint<T>& q = dynamic_cast<const DivergencePoint<T>&>(b);
+	const auto N = p.points.size();
+	const auto A = Util::getAlphabetSize();
+
+	// Commented out by Hani Z Girgis and replaced by the line next to it.
+	// const int k = (int)(log(N) / log(4));
+	int k = a.getK();
+	if(k==1){
+		cerr << "D2_star cannot be applied when k is 1.";
+		cerr << endl;
+		throw std::exception();
+	}
+
+	const auto p1 = p.get_1mers();
+	const auto q1 = q.get_1mers();
+	const double pmag = p.getPseudoMagnitude();
+	const double qmag = q.getPseudoMagnitude();
+	const double pq_len = sqrt(p.getRealMagnitude() * q.getRealMagnitude());
+
+	double sum = 0;
+	for (size_t i = 0; i < N; i++) {
+		double p1i  = 1;
+	    double q1i  = 1;
+	    double pq1i = 1;
+	    size_t idx  = i;
+		for (int j = 0; j < k; j++) {
+			int i1 = idx % A;
+			idx  /= A;
+			p1i  *= (double) p1.at(i1) / pmag;
+			q1i  *= (double) q1.at(i1) / qmag;
+			pq1i *= ((double) p1.at(i1) + q1.at(i1)) / (pmag + qmag);
+		}
+
+		// Post conditions the probabilities
+		if(p1i > 1 || p1i < 0){
+			cerr << "p1i is too big or too small." << endl;
+			throw std::exception();
+		}
+		if(q1i > 1 || q1i < 0){
+			cerr << "pq1i is too big or too small." << endl;
+			throw std::exception();
+		}
+		if(pq1i > 1 || pq1i < 0){
+			cerr << "pq1i is too big or too small." << endl;
+			throw std::exception();
+		}
+
+		double hp = p.points[i] - (p.getRealMagnitude() * p1i + 1);
+		double hq = q.points[i] - (q.getRealMagnitude() * q1i + 1);
+		double e = (p.getRealMagnitude() + q.getRealMagnitude()) * pq1i + 1;
+
+		// Post conditions on the expected value
+		if(e > p.getRealMagnitude() + q.getRealMagnitude()){
+			cerr << "E is too big." << endl;
+			throw std::exception();
+		}
+		if(e < 0){
+			cerr << "E is too small." << endl;
+			throw std::exception();
+		}
+
+		double denom =  e * pq_len;
+		if (denom > 0) {
+			sum += hp * hq / denom;
+		}
+	}
+
 	return sum;
 }
 
@@ -1561,37 +1863,54 @@ double Feature<T>::c_afd(Point<T>& a, Point<T>& b) {
 	}
 }
 
+// Modified by Hani Z. Girgis to enable processing protein sequences on Oct 9 2018.
+// Must be used when k = 2; otherwise, an exception is thrown.
 template<class T>
 double Feature<T>::afd(Point<T>& a, Point<T>& b)
 {
 	const DivergencePoint<T>& p = dynamic_cast<const DivergencePoint<T>&>(a);
 	const DivergencePoint<T>& q = dynamic_cast<const DivergencePoint<T>&>(b);
 	const auto N = p.points.size();
-	const int k = (int)(log(N) / log(4));
+	const auto A = Util::getAlphabetSize();
+
+	const int k = a.getK();
+	if(k != 2){
+		cerr << "AFD cannot be calculated for k other than 2: Received: "  << k << endl;
+		throw std::exception();
+	}
+
 	const auto p1 = p.get_1mers();
 	const auto q1 = q.get_1mers();
 	const auto pmag = p.getPseudoMagnitude();
 	const auto qmag = q.getPseudoMagnitude();
+
 	double sum = 0;
-	const auto nMinusOne = N / 4;
-	const auto nMinusTwo = nMinusOne / 4;
+	const auto nMinusOne = N / A;
+	const auto nMinusTwo = nMinusOne / A;
 	int first_i = 0;
 	for (auto i = 0; i < N; i += nMinusTwo) {
-// 16 iterations total, iterating through all 2-mers
+		// 16 iterations total, iterating through all 2-mers
 		uint64_t psum = 0, qsum = 0;
 		for (auto j = i; j < i + nMinusTwo; j++) {
-			psum += p.points[j];
-			qsum += q.points[j];
+			psum += p.points.at(j);
+			qsum += q.points.at(j);
 		}
-		double x = (double)psum / p1[first_i / 4];
-		double y = (double)qsum / q1[first_i / 4];
+		double x = (double)psum / p1.at(first_i / A);
+		double y = (double)qsum / q1.at(first_i / A);
 		first_i++;
+		double diff = abs(x - y);
+	    double unsquared = (diff * pow(1+diff, -14));
+	    // Hani Z. Girgis modified this line
+		// double unsquared = (diff * pow(1+diff, -2));
 
-
-		double diff = x - y;
-	        double unsquared = (diff * pow(1+diff, -14));
 		sum += unsquared * unsquared;
+
+		if(isinf(sum)){
+			cerr << x << " " << y << " " << diff << " " << unsquared << endl;
+			throw std::exception();
+		}
 	}
+
 	return sum;
 }
 
@@ -1685,57 +2004,62 @@ double Feature<T>::kulczynski1(Point<T> &a, Point<T> &b)
 	return sum;
 }
 
-template<class T>
-double Feature<T>::c_d2_star(Point<T>& a, Point<T>& b) {
 
-	auto aid = a.get_id();
-	auto bid = b.get_id();
-	auto tup = std::tuple<uintmax_t, uintmax_t, uint8_t>(aid, bid, Feature<T>::log2(FEAT_D2_star));
-	if (ltable.find(tup) == ltable.end()) {
-		double val = d2_star(a, b);
-		ltable.insert({tup, val});
-		return val;
-	} else {
-		return ltable.at(tup);
-	}
-}
 
-template<class T>
-double Feature<T>::d2_star(Point<T>& a, Point<T>& b)
-{
-	const DivergencePoint<T>& p = dynamic_cast<const DivergencePoint<T>&>(a);
-	const DivergencePoint<T>& q = dynamic_cast<const DivergencePoint<T>&>(b);
-	const auto N = p.points.size();
-	const int k = (int)(log(N) / log(4));
-	const auto p1 = p.get_1mers();
-	const auto q1 = q.get_1mers();
+// // Modified by Hani Z. Girgis on Oct 7 2018 to enable processing protine sequence.
+// // Failed——needs understanding of the implementation.
+// template<class T>
+// double Feature<T>::d2_star(Point<T>& a, Point<T>& b)
+// {
+// 	const DivergencePoint<T>& p = dynamic_cast<const DivergencePoint<T>&>(a);
+// 	const DivergencePoint<T>& q = dynamic_cast<const DivergencePoint<T>&>(b);
+// 	const auto N = p.points.size();
 
-	const auto pmag = p.getPseudoMagnitude();
-	const auto qmag = q.getPseudoMagnitude();
-	double sum = 0;
-	vector<double> tilde(4, 0);
-	for (int i = 0; i < 4; i++) {
-		tilde[i] = (double)(p1[i] + q1[i]) / (pmag + qmag);
-	}
-	const double L = sqrt(pmag * qmag);
-	for (auto i = 0; i < N; i++) {
-		double p1i = 1;
-	        double q1i = 1;
-		double tilde_i = 1;
-	        auto idx = i;
-		for (int j = 0; j < k; j++) {
-			auto i1 = idx % 4;
-			idx /= 4;
-			p1i *= (double)p1[i1] / pmag;
-			q1i *= (double)q1[i1] / qmag;
-			tilde_i *= tilde[i1];
-		}
-		double hp = p.points[i] - pmag * p1i;
-		double hq = q.points[i] - qmag * q1i;
-		sum += hp * hq / (L * tilde_i);
-	}
-	return sum;
-}
+// 	// const int k = (int)(log(N) / log(4));
+// 	int k = a.getK();
+// 	if(k==1){
+// 		cerr << "D2s is skipped because it cannot be applied when k is 1.";
+// 		cerr << endl;
+// 		throw std::exception();
+// 	}
+// 	const int Alpha = Util::getAlphabetSize();
+
+// 	const auto p1 = p.get_1mers();
+// 	const auto q1 = q.get_1mers();
+
+// 	const auto pmag = p.getPseudoMagnitude();
+// 	const auto qmag = q.getPseudoMagnitude();
+// 	double sum = 0;
+
+// 	vector<double> tilde(Alpha, 0);
+// 	for (int i = 0; i < Alpha; i++) {
+// 		tilde[i] = (double)(p1[i] + q1[i]) / (pmag + qmag);
+// 		cerr << "tilde[i]: " << tilde[i] << endl;
+// 	}
+// 	const double L = sqrt(pmag * qmag);
+// 	for (auto i = 0; i < N; i++) {
+// 		double p1i = 1;
+// 	    double q1i = 1;
+// 		double tilde_i = 1;
+// 	    auto idx = i;
+// 		for (int j = 0; j < k; j++) {
+// 			auto i1 = idx % Alpha;
+// 			idx /= Alpha;
+// 			p1i *= (double)p1[i1] / pmag;
+// 			q1i *= (double)q1[i1] / qmag;
+// 			tilde_i *= tilde[i1];
+// 		}
+// 		double hp = p.points[i] - pmag * p1i;
+// 		double hq = q.points[i] - qmag * q1i;
+// 		sum += hp * hq / (L * tilde_i);
+// 	}
+
+// cerr << "L: " << L << endl;
+
+// 	return sum;
+// }
+
+
 
 template<class T>
 double Feature<T>::c_n2r(Point<T>& a, Point<T>& b) {
@@ -1794,6 +2118,11 @@ double Feature<T>::c_n2rc(Point<T>& a, Point<T>& b) {
 template<class T>
 double Feature<T>::n2rc(Point<T>& a, Point<T>& b) const
 {
+	if(!Util::isDna){
+		cerr << "n2rc cannot be calculated on protein sequences." << endl;
+		throw std::exception();
+	}
+
 	const DivergencePoint<T>& p = dynamic_cast<const DivergencePoint<T>&>(a);
 	const DivergencePoint<T>& q = dynamic_cast<const DivergencePoint<T>&>(b);
 	const auto N = p.points.size();
@@ -1814,6 +2143,14 @@ double Feature<T>::n2rc(Point<T>& a, Point<T>& b) const
 	delete[] cq;
 	return total;
 }
+
+// template<class T>
+// void Feature<T>::safe_insert(std::tuple<uintmax_t, uintmax_t, uint8_t> k, double v){
+// 	# pragma omp critical
+// 	{
+// 		ltable.insert({k, v});
+// 	}
+// }
 
 template class Feature<uint8_t>;
 template class Feature<uint16_t>;

@@ -24,6 +24,7 @@ private:
 	void print();
 	long pmax;
 	long pcur;
+	long old_prog;
 	bool ended;
 	std::string prefix;
 	int barWidth;

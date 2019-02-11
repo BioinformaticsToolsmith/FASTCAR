@@ -14,6 +14,7 @@ Progress::Progress(long num, std::string prefix_)
 	pmax = num;
 	ended = 0;
 	pcur = 0;
+	old_prog = -1;
 	prefix = prefix_;
 	barWidth = 70 - (prefix.size()+1);
 	print();
@@ -23,19 +24,22 @@ void Progress::print()
 {
 	#ifndef NOPROG
 	double prog = (double)pcur / pmax;
-	std::cout << prefix << " [";
-	int pos = barWidth * prog;
-	for (int i = 0; i < barWidth; i++) {
-		if (i < pos) {
-			std::cout << "=";
-		} else if (i == pos) {
-			std::cout << ">";
-		} else {
-			std::cout << " ";
+	if (old_prog != int(prog * 100)) {
+		std::cout << prefix << " [";
+		int pos = barWidth * prog;
+		for (int i = 0; i < barWidth; i++) {
+			if (i < pos) {
+				std::cout << "=";
+			} else if (i == pos) {
+				std::cout << ">";
+			} else {
+				std::cout << " ";
+			}
 		}
+		std::cout << "] " << int(prog * 100.0) << " %\r";
+		std::cout.flush();
 	}
-	std::cout << "] " << int(prog * 100.0) << " %\r";
-	std::cout.flush();
+	old_prog = int(prog * 100);
 	#endif
 }
 

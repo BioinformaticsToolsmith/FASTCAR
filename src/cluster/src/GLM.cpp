@@ -22,13 +22,18 @@ void GLM::train(Matrix& features, Matrix& labels){
 	weights = weights.pseudoInverse() * features.transpose() * labels;
 }
 
+
+double GLM::logistic(double x)
+{
+	return 1.0 / (1 + exp(-x));
+}
 Matrix GLM::predict(Matrix& features) const {
 	Matrix labels;
 	labels	= features * weights;
 	double log;
 	for(int i = 0; i < labels.getNumRow(); i++){
-		log = round(1/(1 + exp(-(labels.get(i,0)))));
-		labels.set(i,0, log);
+		//log = round(1/(1 + exp(-(labels.get(i,0)))) + 0.1);
+		labels.set(i,0, round(logistic(labels.get(i, 0))));
 	}
 	return labels;
 }

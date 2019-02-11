@@ -12,7 +12,7 @@
 #include "../cluster/src/Feature.h"
 #include "../cluster/src/bvec.h"
 #include "../cluster/src/Center.h"
-#include "../cluster/src/Selector.h"
+#include "Predictor.h"
 #include <set>
 template<class T>
 class Trainer {

@@ -1,7 +1,7 @@
 # CXX = /usr/bin/c++
 CXX ?= g++
 
-CXXFLAGS =	-O3 -g -fmessage-length=0 -Wall -march=native -std=c++11
+CXXFLAGS =	-g -Wall -O3 -march=native
 
 #
 # Objects
@@ -28,6 +28,8 @@ OGlobAlignE = ../bin/utility/GlobAlignE.o
 # Non TR
 OChromosome  = ../bin/nonltr/Chromosome.o
 OChromosomeOneDigit = ../bin/nonltr/ChromosomeOneDigit.o
+OChromosomeOneDigitDna = ../bin/nonltr/ChromosomeOneDigitDna.o
+OChromosomeOneDigitProtein = ../bin/nonltr/ChromosomeOneDigitProtein.o
 OChromosomeRandom = ../bin/nonltr/ChromosomeRandom.o
 OChromListMaker = ../bin/nonltr/ChromListMaker.o
 OTableBuilder = ../bin/nonltr/TableBuilder.o
@@ -40,7 +42,7 @@ OTrainer = ../bin/nonltr/Trainer.o
 OLocationList = ../bin/nonltr/LocationList.o
 OLocationListCollection = ../bin/nonltr/LocationListCollection.o
 
-OBJS = $(ORed) $(OInvalidInputException) $(OInvalidStateException) $(OFileDoesNotExistException) $(OInvalidOrderOfOperationsException) $(OInvalidOperationException) $(OInvalidScoreException) $(OUtil) $(OLocation) $(OEmptyLocation) $(OChromosome) $(OChromosomeOneDigit) $(OChromosomeRandom) $(OChromListMaker) $(OTableBuilder) $(OScorer) $(ODetectorMaxima) $(OChromDetector) $(OChromDetectorMaxima) $(OHMM) $(OScanner) $(OTrainer) $(OLocationList) $(OLocationListCollection) $(OLCSLen) $(OAffineId) $(OGlobAlignE)
+OBJS = $(ORed) $(OInvalidInputException) $(OInvalidStateException) $(OFileDoesNotExistException) $(OInvalidOrderOfOperationsException) $(OInvalidOperationException) $(OInvalidScoreException) $(OUtil) $(OLocation) $(OEmptyLocation) $(OChromosome) $(OChromosomeOneDigit) $(OChromosomeRandom) $(OChromListMaker) $(OTableBuilder) $(OScorer) $(ODetectorMaxima) $(OChromDetector) $(OChromDetectorMaxima) $(OHMM) $(OScanner) $(OTrainer) $(OLocationList) $(OLocationListCollection) $(OLCSLen) $(OAffineId) $(OGlobAlignE) $(OChromosomeOneDigitProtein) $(OChromosomeOneDigitDna)
 
 #
 # Target
@@ -113,6 +115,12 @@ $(OChromosome): nonltr/Chromosome.cpp nonltr/Chromosome.h nonltr/IChromosome.h u
 
 $(OChromosomeOneDigit): nonltr/ChromosomeOneDigit.cpp nonltr/ChromosomeOneDigit.h nonltr/Chromosome.h exception/InvalidInputException.h
 	$(CXX) $(CXXFLAGS) -c nonltr/ChromosomeOneDigit.cpp	-o $(OChromosomeOneDigit)
+
+$(OChromosomeOneDigitDna): nonltr/ChromosomeOneDigitDna.cpp nonltr/ChromosomeOneDigitDna.h nonltr/Chromosome.h exception/InvalidInputException.h
+	$(CXX) $(CXXFLAGS) -c nonltr/ChromosomeOneDigitDna.cpp	-o $(OChromosomeOneDigitDna)
+
+$(OChromosomeOneDigitProtein): nonltr/ChromosomeOneDigitProtein.cpp nonltr/ChromosomeOneDigitProtein.h nonltr/Chromosome.h exception/InvalidInputException.h
+	$(CXX) $(CXXFLAGS) -c nonltr/ChromosomeOneDigitProtein.cpp	-o $(OChromosomeOneDigitProtein)
 
 $(OChromosomeRandom): nonltr/ChromosomeRandom.cpp nonltr/ChromosomeRandom.h nonltr/IChromosome.h exception/InvalidInputException.h exception/InvalidStateException.h utility/Util.h
 	$(CXX) $(CXXFLAGS) -c nonltr/ChromosomeRandom.cpp -o $(OChromosomeRandom)

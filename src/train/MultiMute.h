@@ -15,7 +15,8 @@
 #include <string>
 #include <algorithm>
 #include <random>
-
+#include "Random.h"
+#include "LCG.h"
 using namespace std;
 
 class MultiMute {
@@ -32,7 +33,7 @@ public:
 	 int: The total allocation for non-single mutations
 	 int: bool to exclude Translocate and reverse, 1 for disable, any other umber for include
 	 */
-	MultiMute(int, int, int, int, int, bool);
+	MultiMute(int, int, int, int, int, bool, bool, std::random_device::result_type);
 	/*
 	 Takes in a string pointer,
 	 	and mutates it based on the allocation given to the constructor.
@@ -54,14 +55,18 @@ public:
 	int percCs;
 	int percGs;
 	int percTs;
-	int maxReverse;
-	int maxInsert;
-	int maxTrans;
-	int maxDel;
-	int maxDup;
-	int maxNonMutations;
-	int alignmentLength;
-	int IBP;
+	int64_t maxReverse;
+	int64_t maxInsert;
+	int64_t maxTrans;
+	int64_t maxDel;
+	int64_t maxDup;
+	int64_t maxNonMutations;
+	int64_t alignmentLength;
+	int64_t IBP;
+	int64_t total_alloc;
+	LCG rng;
+
+	int64_t max_block_size;
 	std::vector<std::string> * insertions;
 	std::vector<string> * mutationStrings;
 	std::string * seq;

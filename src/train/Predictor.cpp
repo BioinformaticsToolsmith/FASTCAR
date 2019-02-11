@@ -12,24 +12,29 @@
 #include "Predictor.h"
 #include "../cluster/src/Loader.h"
 #include "../cluster/src/Matrix.h"
-#include "../cluster/src/ClusterFactory.h"
 #include "HandleSeq.h"
+#include "../cluster/src/Progress.h"
+#include "Random.h"
 #include <algorithm>
+#include <iomanip>
 
 template<class T>
-void Predictor<T>::save(std::string file)
+void Predictor<T>::save(std::string file, std::string datatype)
 {
 	std::ofstream out(file);
 	out << "k: " << k << endl;
 	out << "mode: " << (unsigned int)mode << endl;
 	out << "max_features: " << max_num_feat << endl;
 	out << "ID: " << id << endl;
+	out << "Datatype: " << datatype << endl;
+	out << "feature_set: " << feats64 << endl;
 	if (mode & PRED_MODE_CLASS) {
 		write_to(out, feat_c, c_glm);
 	}
 	if (mode & PRED_MODE_REGR) {
 		write_to(out, feat_r, r_glm);
 	}
+
 }
 
 template<class T>
@@ -39,14 +44,19 @@ Predictor<T>::Predictor(const std::string filename)
 	std::string buf;
 	unsigned mode_ = 0;
 	in >> buf >> k;
-	cout << buf << k << endl;
+	//cout << buf << k << endl;
 	in >> buf >> mode_;
 	mode = mode_;
-	cout << buf << mode << endl;
+//	cout << buf << mode << endl;
 	in >> buf >> max_num_feat;
-	cout << buf << max_num_feat << endl;
+//	cout << buf << max_num_feat << endl;
 	in >> buf >> id;
-	cout << buf << id << endl;
+//	cout << buf << id << endl;
+	in >> buf >> datatype;
+//	cout << buf << datatype << endl;
+	in >> buf >> feats64;
+//	cout << buf << feats64 << endl;
+
 	is_trained = true;
 	is_training = false;
 	if (mode & PRED_MODE_CLASS) {
@@ -69,7 +79,7 @@ void Predictor<T>::write_to(std::ofstream &out, Feature<T>* feat, matrix::GLM gl
 	auto mins = feat->get_mins();
 	auto maxs = feat->get_maxs();
 	out << std::endl << "n_combos: " << combos.size() << std::endl;
-	out << glm.get_weights().get(0, 0) << endl;
+	out << std::setprecision(std::numeric_limits<double>::digits10) << glm.get_weights().get(0, 0) << endl;
 	for (int j = 0; j < combos.size(); j++) {
 		auto cmb = combos[j];
 		unsigned int val = 0;
@@ -93,13 +103,13 @@ void Predictor<T>::write_to(std::ofstream &out, Feature<T>* feat, matrix::GLM gl
 		}
 		out << val << " ";
 		out << flags << " ";
-		out << glm.get_weights().get(j+1, 0) << std::endl;
+		out << std::setprecision(std::numeric_limits<double>::digits10) << glm.get_weights().get(j+1, 0) << std::endl;
 	}
 	out << std::endl << "n_singles: " << lookup.size() << std::endl;
 	for (int j = 0; j < lookup.size(); j++) {
 		out << lookup[j] << " ";
-		out << mins[j] << " ";
-		out << maxs[j] << std::endl;
+		out << std::setprecision(std::numeric_limits<double>::digits10) << mins[j] << " ";
+		out << std::setprecision(std::numeric_limits<double>::digits10) << maxs[j] << std::endl;
 	}
 }
 
@@ -112,7 +122,7 @@ pair<matrix::GLM, Feature<T>*> Predictor<T>::read_from(std::ifstream& in, int k_
 	Feature<T> *feat = new Feature<T>(k_);
 	std::string buf;
 	in >> buf >> c_num_combos;
-	cout << buf << "\"" << c_num_combos << "\"" << endl;
+//	cout << buf << "\"" << c_num_combos << "\"" << endl;
 	matrix::Matrix weights(c_num_combos+1, 1);
 	double d_;
 	in >> d_;
@@ -120,13 +130,13 @@ pair<matrix::GLM, Feature<T>*> Predictor<T>::read_from(std::ifstream& in, int k_
 	for (int i = 0; i < c_num_combos; i++) {
 		int cmb;
 		in >> cmb;
-		cout << (int)cmb << endl;
+		//	cout << (int)cmb << endl;
 		uint64_t flags;
 		in >> flags;
-		cout << flags << endl;
+//		cout << flags << endl;
 		double d;
 		in >> d;
-		cout << "[" << 0 << "," << i << "] " << d << endl;
+//		cout << "[" << 0 << "," << i << "] " << d << endl;
 		weights.set(i+1, 0, d);//push_back(d);
 		Combo cmb_ = Combo::xy;
 		switch (cmb) {
@@ -150,16 +160,16 @@ pair<matrix::GLM, Feature<T>*> Predictor<T>::read_from(std::ifstream& in, int k_
 	}
 
 	in >> buf >> c_num_raw_feat;
-	cout << buf << "\"" << c_num_raw_feat << "\"" << endl;
+//	cout << buf << "\"" << c_num_raw_feat << "\"" << endl;
 	for (int i = 0; i < c_num_raw_feat; i++) {
 		uint64_t single_flag;
 		double min_, max_;
 		in >> single_flag;
-		cout << single_flag << endl;
+//		cout << single_flag << endl;
 		in >> min_;
-		cout << min_ << endl;
+//		cout << min_ << endl;
 		in >> max_;
-		cout << max_ << endl;
+//		cout << max_ << endl;
 		feat->set_normal(single_flag, min_, max_);
 	}
 	feat->finalize();
@@ -190,19 +200,22 @@ void Predictor<T>::add_feats(std::vector<std::pair<uint64_t, Combo> >& vec, uint
 template<class T>
 void Predictor<T>::check()
 {
-	if (!is_trained && training.size() >= threshold && !is_training) {
-		omp_set_lock(&lock);
-		is_training = true;
-		train();
-		is_training = false;
-		omp_unset_lock(&lock);
-	}
+	// if (!is_trained && training.size() >= threshold && !is_training) {
+	// 	omp_set_lock(&lock);
+	// 	is_training = true;
+	// 	train();
+	// 	is_training = false;
+	// 	omp_unset_lock(&lock);
+	// }
 }
 template<class T>
 double Predictor<T>::similarity(Point<T>* a, Point<T>* b)
 {
 	if (!is_trained) {
-		double d = Selector<T>::align(a, b);
+//		double d = Selector<T>::align(a, b);
+		cerr << "alignment: we don't do that here" << endl;
+		throw "Bad";
+		//		return d;
 		// if (!is_training) {
 		// 	omp_set_lock(&lock);
 		// 	if (training.size() < testing.size() && training.size() < threshold) {
@@ -212,7 +225,8 @@ double Predictor<T>::similarity(Point<T>* a, Point<T>* b)
 		// 	}
 		// 	omp_unset_lock(&lock);
 		// }
-		return d;
+		return 0;
+
 	} else {
 		return predict(a, b);
 	}
@@ -222,7 +236,9 @@ template<class T>
 bool Predictor<T>::close(Point<T> *a, Point<T> *b)
 {
 	if (!is_trained) {
-		double d = Selector<T>::align(a, b);
+//		double d = Selector<T>::align(a, b);
+		cerr << "alignment shouldn't be used here" << endl;
+		throw "bad";
 		// if (!is_training) {
 		// 	omp_set_lock(&lock);
 		// 	if (training.size() < testing.size() && training.size() < threshold) {
@@ -232,7 +248,8 @@ bool Predictor<T>::close(Point<T> *a, Point<T> *b)
 		// 	}
 		// 	omp_unset_lock(&lock);
 		// }
-		return d > id;
+//		return d > id;
+		return false;
 	}
 	bool val = p_close(a, b);
 	if ((mode & PRED_MODE_REGR) && val) {
@@ -254,6 +271,7 @@ double Predictor<T>::p_predict(Point<T>* a, Point<T>* b)
 		double val = (*feat_r)(col, cache);
 		sum += weights.get(col+1, 0) * val;
 	}
+//	sum = scale_min + (scale_max - scale_min) * sum;
 	if (sum < 0) {
 		sum = 0;
 	} else if (sum > 1) {
@@ -264,9 +282,6 @@ double Predictor<T>::p_predict(Point<T>* a, Point<T>* b)
 template<class T>
 double Predictor<T>::predict(Point<T>* a, Point<T>* b)
 {
-	if ((mode & PRED_MODE_CLASS) && !p_close(a, b)) {
-		return 0;
-	}
 	return p_predict(a, b);
 }
 
@@ -280,14 +295,14 @@ bool Predictor<T>::p_close(Point<T>* a, Point<T>* b)
 		double d = (*feat_c)(col-1, cache);
 		sum += weights.get(col, 0) * d;
 	}
-	return sum > 0.0;
+	return round(c_glm.logistic(sum) - 0.10) > 0;
 }
 
 
 template<class T>
-std::pair<matrix::Matrix,matrix::Matrix> generate_feat_mat(const vector<pra<T> > &data, Feature<T>& feat, double cutoff)
+std::pair<matrix::Matrix,matrix::Matrix> generate_feat_mat(const vector<pra<T> > &data, Feature<T>& feat, double cutoff, bool do_print=false)//bool classify, double cutoff, double smin, double smax)
 {
-	bool classify = (cutoff >= 0);
+	bool classify = (cutoff > 0);
 	int nrows = data.size();
 	int ncols = feat.size()+1;
 	matrix::Matrix feat_mat(nrows, ncols);
@@ -305,20 +320,77 @@ std::pair<matrix::Matrix,matrix::Matrix> generate_feat_mat(const vector<pra<T> >
 			labels.set(row, 0, kv.val >= cutoff ? 1 : -1);
 		} else {
 			labels.set(row, 0, kv.val);
+			//	labels.set(row, 0, (kv.val - smin) / (smax - smin));
 		}
 		for (int col = 1; col < ncols; col++) {
 			double val = feat(col-1, cache);
 			feat_mat.set(row, col, val);
 		}
 	}
+	if (do_print) {
+		for (int row = 0; row < data.size(); row++) {
+			cout << "FM " << labels.get(row, 0) << " ";
+			for (int col = 0; col < ncols; col++) {
+				auto val = feat_mat.get(row, col);
+				cout << val << " ";
+			}
+			cout << endl;
+		}
+		cout << endl;
+	}
 	return std::make_pair(feat_mat, labels);
 }
 
+std::string bin2acgt(const std::string& input)
+{
+	std::string out = "";
+	for (char c : input) {
+		switch (c) {
+		case 0:
+			out += 'A';
+			break;
+		case 1:
+			out += 'C';
+			break;
+		case 2:
+			out += 'G';
+			break;
+		case 3:
+			out += 'T';
+			break;
+		default:
+			out += "ERR";
+		}
+	}
+	return out;
+}
+
+std::string uniqheader(std::string hdr)
+{
+	std::string out = "";
+	bool reached_space = false;
+	for (char c : hdr) {
+		if (c == ' ') {
+			break;
+		}
+		out += c;
+	}
+	auto ptr = hdr.find("_mut");
+	if (ptr != std::string::npos) {
+		return out + hdr.substr(ptr);
+	} else {
+		return out;
+	}
+
+}
 template<class T>
-void Predictor<T>::train(const vector<Point<T> *> &points, const vector<Point<T>* > &queries, uintmax_t &_id, size_t num_sample)
+void Predictor<T>::train(const vector<Point<T> *> &points, uintmax_t &_id, size_t num_sample)
 {
 	if (is_trained) { return; }
 
+	// for (auto p : points) {
+	// 	cout << "H: " << p->get_header() << endl;
+	// }
 	num_sample = min(num_sample, points.size());
 
 	vector<Point<T>*> f_points_tr, f_points_test;
@@ -341,42 +413,128 @@ void Predictor<T>::train(const vector<Point<T> *> &points, const vector<Point<T>
 	training.clear();
 	testing.clear();
 	if (mode & PRED_MODE_CLASS) {
+		vector<std::random_device::result_type> train_seeds, test_seeds;
+		for (size_t i = 0; i < f_points_tr.size(); i++) {
+			train_seeds.push_back(random.nextRandSeed());
+		}
+		for (size_t i = 0; i < f_points_test.size(); i++) {
+			test_seeds.push_back(random.nextRandSeed());
+		}
 		std::vector<pra<T> > pos_buf, neg_buf;
 		cout << "mutating sequences" << endl;
-		for (auto p : f_points_tr) {
-			mutate_seqs(p, 5, pos_buf, neg_buf, 100 * id, 100, _id);
-			mutate_seqs(p, 5, pos_buf, neg_buf, 40, 100 * id, _id);
+		size_t counter = 0;
+		// struct timespec start, stop;
+		// clock_gettime(CLOCK_MONOTONIC, &start);
+		Progress prog1(f_points_tr.size(), "Generating training");
+//		#pragma omp parallel for
+		for (size_t i = 0; i < f_points_tr.size(); i++) {
+			auto p = f_points_tr[i];
+			mutate_seqs(p, 5, pos_buf, neg_buf, 100 * id, 100, _id, train_seeds[i]);
+			mutate_seqs(p, 10, pos_buf, neg_buf, min_id, 100 * id, _id, train_seeds[i]);
+			#pragma omp critical
+			prog1++;
 		}
+		prog1.end();
+
+		// clock_gettime(CLOCK_MONOTONIC, &stop);
+		// printf("took %lu\n", stop.tv_sec - start.tv_sec);
+
+		counter = 0;
 		size_t buf_size = std::min(pos_buf.size(), neg_buf.size());
 		cout << "training +: " << pos_buf.size() << endl;
 		cout << "training -: " << neg_buf.size() << endl;
-		std::random_shuffle(pos_buf.begin(), pos_buf.end());
-		std::random_shuffle(neg_buf.begin(), neg_buf.end());
+		auto pra_cmp = [](const pra<T> &a, const pra<T> &b) {
+			int fc = a.first->get_header().compare(b.first->get_header());
+			int sc = a.second->get_header().compare(b.second->get_header());
+			return fc < 0 || (fc == 0 && sc < 0);
+		};
+		std::sort(pos_buf.begin(), pos_buf.end(), pra_cmp);
+		std::sort(neg_buf.begin(), neg_buf.end(), pra_cmp);
+
+		std::shuffle(pos_buf.begin(), pos_buf.end(), random.gen());
+		std::shuffle(neg_buf.begin(), neg_buf.end(), random.gen());
+		// for (auto p : pos_buf) {
+		// 	cout << "PB: " << p.first->get_header() << " " << p.second->get_header() << endl;
+		// }
+		// for (auto p : neg_buf) {
+		// 	cout << "NB: " << p.first->get_header() << " " << p.second->get_header() << endl;
+		// }
+
 		for (size_t i = 0; i < buf_size; i++) {
-			training.push_back(pos_buf[i]);
-			training.push_back(neg_buf[i]);
+			training.push_back(pos_buf[i].deep_clone());
+
+		}
+		for (size_t i = 0; i < 2 * buf_size && i < neg_buf.size(); i++) {
+			training.push_back(neg_buf[i].deep_clone());
+		}
+		for (auto p : pos_buf) {
+			delete p.first;
+			delete p.second;
+		}
+		for (auto p : neg_buf) {
+			delete p.first;
+			delete p.second;
 		}
 		pos_buf.clear();
 		neg_buf.clear();
-		for (auto p : f_points_test) {
-			mutate_seqs(p, 5, pos_buf, neg_buf, 100 * id, 100, _id);
-			mutate_seqs(p, 5, pos_buf, neg_buf, 40, 100 * id, _id);
+		Progress prog2(f_points_test.size(), "Generating testing");
+//		#pragma omp parallel for
+		for (size_t i = 0; i < f_points_test.size(); i++) {
+			auto p = f_points_test[i];
+			mutate_seqs(p, 5, pos_buf, neg_buf, 100 * id, 100, _id, test_seeds[i]);
+			mutate_seqs(p, 10, pos_buf, neg_buf, min_id, 100 * id, _id, test_seeds[i]);
+#pragma omp critical
+			prog2++;
 		}
+		prog2.end();
 		buf_size = std::min(pos_buf.size(), neg_buf.size());
 		cout << "testing +: " << pos_buf.size() << endl;
 		cout << "testing -: " << neg_buf.size() << endl;
-		std::random_shuffle(pos_buf.begin(), pos_buf.end());
-		std::random_shuffle(neg_buf.begin(), neg_buf.end());
+		std::sort(pos_buf.begin(), pos_buf.end(), pra_cmp);
+		std::sort(neg_buf.begin(), neg_buf.end(), pra_cmp);
+
+		std::shuffle(pos_buf.begin(), pos_buf.end(), random.gen());
+		std::shuffle(neg_buf.begin(), neg_buf.end(), random.gen());
 		for (size_t i = 0; i < buf_size; i++) {
-			testing.push_back(pos_buf[i]);
-			testing.push_back(neg_buf[i]);
+			testing.push_back(pos_buf[i].deep_clone());
 		}
+		for (size_t i = 0; i < 2 * buf_size && i < neg_buf.size(); i++) {
+			testing.push_back(neg_buf[i].deep_clone());
+		}
+		for (auto p : pos_buf) {
+			delete p.first;
+			delete p.second;
+		}
+		for (auto p : neg_buf) {
+			delete p.first;
+			delete p.second;
+		}
+		// for (auto p : training) {
+		// 	std::string h1 = uniqheader(p.first->get_header());
+		// 	std::string h2 = uniqheader(p.second->get_header());
+		// 	cout << "%" << h1 << endl;
+		// 	cout << "%" << bin2acgt(p.first->get_data_str()) << endl;
+		// 	cout << "!" << h1 << "!" << h2 << "!" << p.val << endl;
+		// 	cout << "@" << h2 << endl;
+		// 	cout << "@" << p.second->get_data_str() << endl;
+		// }
+
+		// for (auto p : testing) {
+		// 	std::string h1 = uniqheader(p.first->get_header());
+		// 	std::string h2 = uniqheader(p.second->get_header());
+		// 	cout << "%" << h1 << endl;
+		// 	cout << "%" << bin2acgt(p.first->get_data_str()) << endl;
+		// 	cout << "!" << h1 << "!" << h2 << "!" << p.val << endl;
+		// 	cout << "@" << h2 << endl;
+		// 	cout << "@" << p.second->get_data_str() << endl;
+		// }
+//		exit(100);
 	} else {
 		for (auto p : f_points_tr) {
-			mutate_seqs(p, 10, training, training, 40, 100, _id);
+			mutate_seqs(p, 5, training, training, min_id, 100, _id, random.nextRandSeed());
 		}
 		for (auto p : f_points_test) {
-			mutate_seqs(p, 10, testing, testing, 40, 100, _id);
+			mutate_seqs(p, 5, testing, testing, min_id, 100, _id, random.nextRandSeed());
 		}
 	}
 
@@ -426,7 +584,10 @@ std::pair<double, matrix::GLM> class_train(vector<pra<T> > &data, Feature<T>& fe
 			p.set(row, 0, -1);
 		}
 	}
-	double acc = get<0>(glm.accuracy(pr.second, p));
+	auto tup = glm.accuracy(pr.second, p);
+	double acc = get<0>(tup);
+	double sens = get<1>(tup);
+	double spec = get<2>(tup);
 	return {acc, glm};
 }
 
@@ -473,7 +634,12 @@ tuple<double,double,double> class_test(const vector<pra<T> >& data, Feature<T>& 
 		}
 	}
 //	print_wrong(pr.second, p);
-	return glm.accuracy(pr.second, p);
+	auto tup = glm.accuracy(pr.second, p);
+	return tup;
+	// return std::make_tuple(sqrt(get<1>(tup) * get<2>(tup)),
+	// 		       get<1>(tup),
+	// 		       get<2>(tup));
+
 }
 
 template<class T>
@@ -492,9 +658,7 @@ void Predictor<T>::filter(std::vector<pra<T> > &vec, std::string prefix)
 		for (size_t i = 1; i < limits.size(); i++) {
 			if (p.val <= limits[i] && p.val > limits[i-1]) {
 				bins[i-1].push_back(p);
-				if (prefix != "") {
-					cout << prefix << " bin " << i - 1 << " " << p.val << endl;
-				}
+
 				break;
 			}
 		}
@@ -503,7 +667,7 @@ void Predictor<T>::filter(std::vector<pra<T> > &vec, std::string prefix)
 	for (auto &v : bins) {
 		bin_size += v.size();
 		// smallest_bin_size = std::min(smallest_bin_size, v.size());
-		std::random_shuffle(v.begin(), v.end());
+		std::shuffle(v.begin(), v.end(), random.gen());
 	}
 	smallest_bin_size = bin_size / bins.size();
 	vec.clear();
@@ -511,26 +675,20 @@ void Predictor<T>::filter(std::vector<pra<T> > &vec, std::string prefix)
 	for (auto &v : bins) {
 		for (size_t i = 0; i < std::min(v.size(), smallest_bin_size); i++) {
 			vec.push_back(v[i]);
+			if (prefix != "") {
+				cout << prefix << " bin " << i - 1 << " " << v[i].val << endl;
+			}
 		}
 	}
 	cout << "new vector size: " << vec.size() << " divided into " << bins.size() << " equal parts" << endl;
 }
-
-double rand_between(double mute, double rng, double low, double high)
-{
-	double r_d = (double)rand() / RAND_MAX;
-
-	double mn = std::max(mute - rng, low);
-	double mx = std::min(mute + rng, high);
-	return r_d * (mx - mn) + mn;
-}
-
 template<class T>
-void Predictor<T>::mutate_seqs(Point<T>* p, size_t num_seq, vector<pra<T> > &pos_buf, vector<pra<T> > &neg_buf, double id_begin, double id_end, uintmax_t& _id)
+void Predictor<T>::mutate_seqs(Point<T>* p, size_t num_seq, vector<pra<T> > &pos_buf, vector<pra<T> > &neg_buf, double id_begin, double id_end, uintmax_t& _id, std::random_device::result_type seed)
 {
-	HandleSeq h(HandleSeq::ALL, true);
-	ClusterFactory<T> factory(k);
-	double inc = (id_end - id_begin) / num_seq;
+
+	LCG newRand(seed);
+	HandleSeq h(mut_type, newRand.nextRandSeed());
+
 	std::string bin_seq = p->get_data_str();
 	std::string seq;
 	for (auto c : bin_seq) {
@@ -556,22 +714,34 @@ void Predictor<T>::mutate_seqs(Point<T>* p, size_t num_seq, vector<pra<T> > &pos
 			throw 3;
 		}
 	}
+
+	double inc = (id_end - id_begin) / num_seq;
 	for (size_t i = 0; i < num_seq; i++) {
 		double iter_id = id_begin + inc * (i + 0.5);
-		double actual_id = rand_between(iter_id, inc, id_begin, id_end);
+		double actual_id = newRand.rand_between(iter_id, inc, id_begin, id_end);
+//		double actual_id = rand_between(iter_id, inc, id_begin, id_end);
 		int mut = round(100 - actual_id);
-		auto newseq = h.mutate(seq, mut);
+		mut = (mut == 0) ? 1 : mut;
+		int spt = newRand.randMod<int>(mut);
+		auto newseq = h.mutate(seq, mut, spt);
 		std::string chrom;
-		std::string header = p->get_header();
+		std::ostringstream oss;
+		oss << p->get_header() << "_mut" << mut << "_" << spt << "_" << i;
+		std::string header = oss.str();
 		Point<T>* new_pt = Loader<T>::get_point(header, newseq.second, _id, k);
 		pra<T> pr;
 		pr.first = p->clone();
+		pr.first->set_data_str(bin_seq);
 		pr.second = new_pt;
+		pr.second->set_data_str(newseq.second);
 		pr.val = newseq.first;
-		if (pr.val > id) {
-			pos_buf.push_back(pr);
-		} else {
-			neg_buf.push_back(pr);
+#pragma omp critical
+		{
+			if (pr.val > id) {
+				pos_buf.push_back(pr);
+			} else {
+				neg_buf.push_back(pr);
+			}
 		}
 	}
 }
@@ -649,6 +819,8 @@ void Predictor<T>::train()
 	testing.clear();
 	possible_feats.clear();
 	is_trained = true;
+	// save("weights.txt");
+	// exit(100);
 }
 
 template<class T>
@@ -660,6 +832,10 @@ void Predictor<T>::train_class(Feature<T>* feat)
 	}
 	vector<uintmax_t> used_list;
 	double abs_best_acc = 0;
+//	cout << "possible feats at one step: " << possible_feats.size() << endl;
+	Progress prog(possible_feats.size() * max_num_feat, "Feature selection:");
+
+	std::ostringstream oss;
 	for (auto num_feat = 1; num_feat <= max_num_feat; num_feat++) {
 		double best_class_acc = abs_best_acc;
 		uintmax_t best_idx = -1, cur_idx = 1;
@@ -675,30 +851,35 @@ void Predictor<T>::train_class(Feature<T>* feat)
 			auto name = feat->feat_names().back();
 			auto pr = class_train(training, *feat, id);
 			auto class_ac = class_test(testing, *feat, pr.second, id);
+			double class_accuracy = get<0>(class_ac);//sqrt(get<1>(class_ac) * get<2>(class_ac));
 			feat->remove_feature();
-
-			cout << "Feature: " << cur_idx++ << "/" << possible_feats.size() - used_list.size() << " " << num_feat << "/" << max_num_feat << " " << name  << " acc: " << get<0>(class_ac) << " sens: " << get<1>(class_ac) << " spec: " << get<2>(class_ac) << endl;
-			if (get<0>(class_ac) > best_class_acc) {
-				best_class_acc = get<0>(class_ac);
+			prog++;
+//			cout << "Feature: " << cur_idx++ << "/" << possible_feats.size() - used_list.size() << " " << num_feat << "/" << max_num_feat << " " << name  << " acc: " << get<0>(class_ac) << " sens: " << get<1>(class_ac) << " spec: " << get<2>(class_ac) << endl;
+			if (class_accuracy > best_class_acc) {
+				best_class_acc = class_accuracy;
 				best_class_feat = rfeat;
 				best_idx = i;
 			}
 		}
-		if (best_class_acc > abs_best_acc) {
+		/* accept the feature if either 1. we don't have enough features
+		 * or 2. it improves accuracy by over 0.5%
+		 */
+		if (best_class_acc > abs_best_acc || num_feat <= min_num_feat) {
 			feat->add_feature(best_class_feat.first, best_class_feat.second);
 			feat->normalize(training);
 			feat->finalize();
 			abs_best_acc = best_class_acc;
 			used_list.push_back(best_idx);
-			cout << "Feature added: " << best_class_feat.first << " " << (int)best_class_feat.second << endl;
-			cout << "Accuracy: " << best_class_acc << endl;
-			//possible_feats.erase(std::remove(possible_feats.begin(), possible_feats.end(), best_regr_feat), possible_feats.end());
+			oss << "Feature added: " << best_class_feat.first << " " << (int)best_class_feat.second << endl;
+			oss << "Accuracy: " << best_class_acc << endl;
+			possible_feats.erase(std::remove(possible_feats.begin(), possible_feats.end(), best_class_feat), possible_feats.end());
 		}
 	}
+	prog.end();
+	cout << oss.str();
 	feat_c = new Feature<T>(*feat);
 	feat_c->set_save(false);
 	auto pr = class_train(training, *feat_c, id);
-	cout << "Training ACC: " << pr.first << endl;
 	c_glm = pr.second;
 	auto train_results = class_test(training, *feat_c, c_glm, id);//, "train");
 	cout << "Training ACC: " << get<0>(train_results) << " " << get<1>(train_results) << " " << get<2>(train_results) << endl;
@@ -720,6 +901,7 @@ void Predictor<T>::train_regr(Feature<T>* feat)
 	}
 	vector<uintmax_t> used_list;
 	double abs_best_regr = 1000000;
+//	Progress prog(possible_feats.size() * max_num_feat, "Feature selection:");
 	for (auto num_feat = 1; num_feat <= max_num_feat; num_feat++) {
 		double best_regr_err = abs_best_regr;
 		uintmax_t best_idx = -1, cur_idx = 1;
@@ -736,8 +918,8 @@ void Predictor<T>::train_regr(Feature<T>* feat)
 			auto name = feat->feat_names().back();
 			double regr_mse = regression_test(testing, *feat, pr.second);
 			feat->remove_feature();
-
-			cout << "Feature: " << cur_idx++ << "/" << possible_feats.size() - used_list.size() << " " << num_feat << "/" << max_num_feat << " " << name << " err: " << regr_mse << endl;
+			//	prog++;
+			//cout << "Feature: " << cur_idx++ << "/" << possible_feats.size() - used_list.size() << " " << num_feat << "/" << max_num_feat << " " << name << " err: " << regr_mse << endl;
 			if (regr_mse < best_regr_err) {
 				best_regr_err = regr_mse;
 				best_regr_feat = rfeat;
@@ -753,6 +935,8 @@ void Predictor<T>::train_regr(Feature<T>* feat)
 			//possible_feats.erase(std::remove(possible_feats.begin(), possible_feats.end(), best_regr_feat), possible_feats.end());
 		}
 	}
+//	prog.end();
+
 	feat_r = new Feature<T>(*feat);
 	feat_r->set_save(false);
 	auto pr = regression_train(training, *feat_r);
@@ -765,13 +949,14 @@ void Predictor<T>::train_regr(Feature<T>* feat)
 	for (auto line : feat_r->feat_names()) {
 		cout << "\t" << line << endl;
 	}
-	// auto w = r_glm.get_weights();
-	// for (int r = 0; r < w.getNumRow(); r++) {
-	// 	for (int c = 0; c < w.getNumCol(); c++) {
-	// 		cout << w.get(r, c) << " ";
-	// 	}
-	// 	cout << endl;
-	// }
+	auto w = r_glm.get_weights();
+	for (int r = 0; r < w.getNumRow(); r++) {
+		cout << "weight: ";
+		for (int c = 0; c < w.getNumCol(); c++) {
+			cout << w.get(r, c) << " ";
+		}
+		cout << endl;
+	}
 	// for (auto combo : feat.get_combos()) {
 	// 	cout << combo.first << " " <<
 	// }

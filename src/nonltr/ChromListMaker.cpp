@@ -89,10 +89,10 @@ const vector<Chromosome *> * ChromListMaker::makeChromList() {
 	return chromList;
 }
 
-const vector<Chromosome *> * ChromListMaker::makeChromOneDigitList() {
+const vector<Chromosome *> * ChromListMaker::makeChromOneDigitDnaList() {
 	ifstream in(seqFile.c_str());
 	bool isFirst = true;
-	ChromosomeOneDigit * chrom;
+	ChromosomeOneDigitDna * chrom;
 
 	while (in.good()) {
 		string line;
@@ -105,7 +105,37 @@ const vector<Chromosome *> * ChromListMaker::makeChromOneDigitList() {
 				isFirst = false;
 			}
 
-			chrom = new ChromosomeOneDigit();
+			chrom = new ChromosomeOneDigitDna();
+			chrom->setHeader(line);
+		} else {
+			chrom->appendToSequence(line);
+		}
+	}
+
+	chrom->finalize();
+	chromList->push_back(chrom);
+	in.close();
+
+	return chromList;
+}
+
+const vector<Chromosome *> * ChromListMaker::makeChromOneDigitProteinList() {
+	ifstream in(seqFile.c_str());
+	bool isFirst = true;
+	ChromosomeOneDigitProtein * chrom;
+
+	while (in.good()) {
+		string line;
+		safe_getline(in, line);
+		if (line[0] == '>') {
+			if (!isFirst) {
+				chrom->finalize();
+				chromList->push_back(chrom);
+			} else {
+				isFirst = false;
+			}
+
+			chrom = new ChromosomeOneDigitProtein();
 			chrom->setHeader(line);
 		} else {
 			chrom->appendToSequence(line);

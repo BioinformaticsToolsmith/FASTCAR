@@ -11,7 +11,7 @@
 #define SINGLEFILELOADER_H
 
 #include <fstream>
-
+#include "../../nonltr/ChromosomeOneDigitDna.h"
 class SingleFileLoader {
 public:
 	SingleFileLoader(std::string file);
@@ -21,6 +21,7 @@ public:
 		}
 	}
 	std::pair<std::string,std::string*> next();
+	ChromosomeOneDigitDna* nextChrom();
 private:
 	std::ifstream *in;
 	std::string buffer;

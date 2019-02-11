@@ -67,7 +67,7 @@ void drive(map<string, string> * const param) {
       Util::deleteFile(param->at(MSK_PRM));
     }
   }
-  
+
   if (param->count(RPT_PRM) > 0) {
     if (param->count(GNM_PRM) > 0) {
       cout << "Deleting pre-existing files under " << param->at(RPT_PRM);
@@ -78,7 +78,7 @@ void drive(map<string, string> * const param) {
       Util::deleteFile(param->at(RPT_PRM));
     }
   }
-  
+
   if (param->count(SCO_PRM) > 0 && param->count(GNM_PRM) > 0) {
     cout << "Deleting pre-existing files under " << param->at(SCO_PRM);
     cout << endl;
@@ -97,21 +97,21 @@ void drive(map<string, string> * const param) {
 
   // Process the input
   int k = atoi(param->at(LEN_PRM).c_str());
-  
+
   if (param->count(GNM_PRM) > 0) {
     string genomeDir = param->at(GNM_PRM);
     int order = atoi(param->at(ORD_PRM).c_str());
     double s = atoi(param->at(GAU_PRM).c_str());
     double t = atoi(param->at(THR_PRM).c_str());
     int minObs = atoi(param->at(MIN_PRM).c_str());
-    
+
     // Adjust the threshold when it is one because of the log base.
     if (((int) t) == 1) {
       t = 1.5;
       cout << "The base of the logarithmic function is adjusted." << endl;
     }
-    
-    
+
+
     // This part or the next
     Trainer * trainer;
     if (param->count(CND_PRM) > 0) {
@@ -119,20 +119,20 @@ void drive(map<string, string> * const param) {
     } else {
       trainer = new Trainer(genomeDir, order, k, s, t, minObs);
     }
-    
-    
+
+
     if (param->count(TBL_PRM)) {
       cout << "Printing the count of the kmer's to: ";
       cout << param->at(TBL_PRM) << endl;
       trainer->printTable(param->at(TBL_PRM));
     }
-    
+
     if (param->count(HMO_PRM) > 0) {
       cout << "Printing the HMM to: " << endl;
       cout << param->at(HMO_PRM) << endl;
       trainer->printHmm(param->at(HMO_PRM));
     }
-    
+
     // Stage 3: Scan
     cout << endl << endl;
     cout << "Stage 4: Scanning ..." << endl;
@@ -141,33 +141,33 @@ void drive(map<string, string> * const param) {
     if (param->count(DIR_PRM) > 0) {
       Util::readChromList(param->at(DIR_PRM), fileList, string("fa"));
     }
-    
+
     int chromCount = fileList->size();
     for (int i = 0; i < chromCount; i++) {
       cout << "Scanning: " << fileList->at(i) << endl;
-      
+
       // Output file name
       string path(fileList->at(i));
       int slashLastIndex = path.find_last_of(Util::fileSeparator);
       int dotLastIndex = path.find_last_of(".");
       string nickName = path.substr(slashLastIndex + 1, dotLastIndex - slashLastIndex - 1);
-      
+
       // Process each sequence with the ith file
       ChromListMaker * maker = new ChromListMaker(fileList->at(i));
-      const vector<Chromosome *> * chromList = maker->makeChromOneDigitList();
+      const vector<Chromosome *> * chromList = maker->makeChromOneDigitDnaList();
 
       ChromListMaker * oMaker = new ChromListMaker(fileList->at(i));
       const vector<Chromosome *> * oChromList;
       if (param->count(MSK_PRM) > 0) {
 	oChromList = oMaker->makeChromList();
       }
-      
+
       for (int h = 0; h < chromList->size(); h++) {
-	ChromosomeOneDigit * chrom = dynamic_cast<ChromosomeOneDigit *>(chromList->at(h));
-	
+	ChromosomeOneDigitDna * chrom = dynamic_cast<ChromosomeOneDigitDna *>(chromList->at(h));
+
 	// Scan the forward strand
 	Scanner * scanner = new Scanner(trainer->getHmm(), k, chrom,trainer->getTable());
-	
+
 	// Scan the reverse complement
 	chrom->makeRC();
 	Scanner * scannerRC = new Scanner(trainer->getHmm(), k, chrom, trainer->getTable());
@@ -175,8 +175,8 @@ void drive(map<string, string> * const param) {
 	scanner->mergeWithOtherRegions(scannerRC->getRegionList());
 	delete scannerRC;
 	chrom->makeRC();
-	
-	
+
+
 	// Scan the reverse
 	chrom->makeR();
 	Scanner * scannerR = new Scanner(trainer->getHmm(), k, chrom, trainer->getTable());
@@ -186,14 +186,14 @@ void drive(map<string, string> * const param) {
 
 	//@@ The chromosome now has the sequence of the reverse strand
 	// The actual strand is calculated if the user requested the scores.
-	
+
 	// Print according to the user's requests
 	bool canAppend = (h == 0) ? false : true;
-	
+
 	if (param->count(SCO_PRM) > 0) {
 	  // Calculate the forward strand from the reverse
 	  chrom->makeR();
-	  
+
 	  string scoFile = param->at(SCO_PRM) + Util::fileSeparator + nickName + ".scr";
 	  if (!canAppend) {
 	    cout << "Printing scores to: " << scoFile << endl;
@@ -203,7 +203,7 @@ void drive(map<string, string> * const param) {
 	  scorer->printScores(scoFile, canAppend);
 	  delete scorer;
 	}
-	
+
 	if (param->count(RPT_PRM) > 0) {
 	  string rptFile = param->at(RPT_PRM) + Util::fileSeparator + nickName + ".rpt";
 	  if (!canAppend) {
@@ -211,7 +211,7 @@ void drive(map<string, string> * const param) {
 	  }
 	  scanner->printIndex(rptFile, canAppend, atoi(param->at(FRM_PRM).c_str()));
 	}
-	
+
 	if (param->count(MSK_PRM) > 0) {
 	  string mskFile = param->at(MSK_PRM) + Util::fileSeparator + nickName + ".msk";
 	  if (!canAppend) {
@@ -220,41 +220,41 @@ void drive(map<string, string> * const param) {
 	  Chromosome * oChrom = oChromList->at(h);
 	  scanner->printMasked(mskFile, *oChrom, canAppend);
 	}
-	
+
 	// Free memory
 	delete scanner;
       }
-      
+
       delete maker;
       delete oMaker;
     }
-    
+
     // Free memory
     fileList->clear();
     delete fileList;
     delete trainer;
   } else if (param->count(HMI_PRM) > 0) {
     HMM * hmm = new HMM(param->at(HMI_PRM));
-    
+
     string chromFile = param->at(SEQ_PRM);
     string scoresFile = param->at(SCI_PRM);
-    
-    ChromosomeOneDigit * chrom = new ChromosomeOneDigit(chromFile);
+
+    ChromosomeOneDigitDna * chrom = new ChromosomeOneDigitDna(chromFile);
     Scanner * scanner = new Scanner(hmm, k, chrom, scoresFile);
-    
+
     if (param->count(RPT_PRM) > 0) {
       string rptFile = param->at(RPT_PRM);
       cout << "Printing locations to: " << rptFile << endl;
       scanner->printIndex(rptFile, false, atoi(param->at(FRM_PRM).c_str()));
     }
-    
+
     if (param->count(MSK_PRM) > 0) {
       string mskFile = param->at(MSK_PRM);
       cout << "Printing masked sequence to: " << mskFile << endl;
       Chromosome oChrom(chromFile);
       scanner->printMasked(mskFile, oChrom, false);
     }
-    
+
     // Free memory
     delete scanner;
     delete chrom;
@@ -266,7 +266,7 @@ int main(int argc, char * argv[]) {
   cout << endl << endl;
   cout << "This is Red (REpeat Detector) designed and developed by ";
   cout << "Hani Zakaria Girgis, PhD." << endl << endl;
-  
+
   cout << "Version: 05/22/2015" << endl << endl;
 
   string message = string("Valid argument pairs:\n");
@@ -278,8 +278,8 @@ int main(int argc, char * argv[]) {
   message.append("\t\tFiles with \".fa\" extension in this directory are NOT used for completing the table.\n");
   message.append("\t\tThese Files MUST have different names from those in the genome directory.\n");
   message.append("\t\tThese Files are scanned for repeats.\n");
-  
-  
+
+
   message.append("\t-len word length equals k defining the k-mer. The default is floor(log_4(genome size)).\n");
   message.append("\t-ord order of the background Markov chain. The default is floor(k/2)-1.\n");
   message.append("\t-gau half width of the mask. The default is based on the GC content.\n");
@@ -290,7 +290,7 @@ int main(int argc, char * argv[]) {
   message.append("\t-tbl file where the table of the adjusted counts is written, optional.\n");
   message.append("\t-sco directory where scores are saved, optional.\n");
   message.append("\t\tScore files have the \".scr\" extension.\n");
-  
+
   message.append("\t-cnd directory where candidate regions are saved, optional.\n");
   message.append("\t\tCandidates files have the \".cnd\" extension.\n");
   message.append("\t-rpt directory where repeats locations are saved, optional.\n");
@@ -300,7 +300,7 @@ int main(int argc, char * argv[]) {
 
   message.append("\t-frm the format of the output: 1 (chrName:start-end) or 2 (chrName\tstart\tend).\n");
   message.append("\t\tThe output format are zero based and the end is exclusive.\n");
-  
+
   message.append("\t-hmo file where the HMM is saved, optional.\n\n");
 
   message.append("Examples:\n");
@@ -342,11 +342,11 @@ int main(int argc, char * argv[]) {
 	return 1;
       }
     }
-    
-    
+
+
     // Check if the user provided the essential arguments
-    
-    
+
+
     if (param->count(LEN_PRM) == 0) {
       if (param->count(GNM_PRM) > 0) {
 	// Calculate the size of the genome
@@ -365,9 +365,9 @@ int main(int argc, char * argv[]) {
 	}
 	fileList->clear();
 	delete fileList;
-	
+
 	double temp = log(genomeLength) / log(4.0);
-	
+
 	int k = floor(temp);
 	cout << "The recommended k is " << k << "." << endl;
 	if (k > 15) {
@@ -382,17 +382,17 @@ int main(int argc, char * argv[]) {
 	  k = 12;
 	}
 	cout << endl;
-	
+
 	string kString = Util::int2string(k);
 	param->insert(map<string, string>::value_type(LEN_PRM, kString));
-	
+
       } else {
 	cerr << "The word length is required." << endl;
 	cerr << message << endl;
 	return 1;
       }
     }
-    
+
     if(param->count(FRM_PRM) == 0){
       cout << "Using the default output format chrName:start-end" << endl;
       param->insert(map<string, string>::value_type(FRM_PRM, Util::int2string(Scanner::FRMT_POS)));
@@ -404,21 +404,21 @@ int main(int argc, char * argv[]) {
 	return 1;
       }
     }
-    
+
     if (param->count(GNM_PRM) > 0) {
       Util::checkFile(param->at(GNM_PRM));
-      
+
       if (param->count(ORD_PRM) == 0) {
 	double k = atoi(param->at(LEN_PRM).c_str());
 	int o = floor(k / 2.0) - 1;
-	
+
 	cout << "Using the default background order: " << o << ".";
 	cout << endl;
-	
+
 	string oString = Util::int2string(o);
 	param->insert(map<string, string>::value_type(ORD_PRM, oString));
       }
-      
+
       if (param->count(THR_PRM) == 0) {
 	cout << "Using the default threshold: 2." << endl;
 	param->insert(map<string, string>::value_type(THR_PRM, string("2")));
@@ -430,7 +430,7 @@ int main(int argc, char * argv[]) {
 	  return 1;
 	}
       }
-      
+
       if (param->count(MIN_PRM) == 0) {
 	cout << "Using the default minimum of the observed count of k-mers: 3." << endl;
 	param->insert(map<string, string>::value_type(MIN_PRM, string("3")));
@@ -442,10 +442,10 @@ int main(int argc, char * argv[]) {
 	  return 1;
 	}
       }
-      
+
       if (param->count(GAU_PRM) == 0) {
 	cout << "Calculating GC content ..." << endl;
-	
+
 	// 1: Count the gc content of the input genome
 	long genomeLength = 0;
 	long genomeGc = 0;
@@ -463,7 +463,7 @@ int main(int argc, char * argv[]) {
 	}
 	fileList->clear();
 	delete fileList;
-	
+
 	// 2: Calculate the gc content of the input genome
 	double gc = 100.00 * genomeGc / genomeLength;
 	int w = 20;
@@ -477,7 +477,7 @@ int main(int argc, char * argv[]) {
       }
     } else if (param->count(HMI_PRM) > 0) {
       Util::checkFile(param->at(HMI_PRM));
-      
+
       if (param->count(SEQ_PRM) == 0) {
 	cerr << "The sequence file is required.";
 	cerr << endl;
@@ -486,7 +486,7 @@ int main(int argc, char * argv[]) {
       } else {
 	Util::checkFile(param->at(SEQ_PRM));
       }
-      
+
       if (param->count(SCI_PRM) == 0) {
 	cerr << "The scores file is required.";
 	cerr << endl;
@@ -495,14 +495,14 @@ int main(int argc, char * argv[]) {
       } else {
 	Util::checkFile(param->at(SCI_PRM));
       }
-      
+
     } else {
       cerr << "A mode is required: training and scanning (-gnm) or ";
       cerr << "scanning only (-hmi)." << endl;
       cerr << message << endl;
       return 1;
     }
-    
+
     // Check optional parameters
     if (param->count(TBL_PRM) > 0 && param->count(GNM_PRM) == 0) {
       cerr << "Printing the k-mer table is optional with -gnm only.";
@@ -510,14 +510,14 @@ int main(int argc, char * argv[]) {
       cerr << message << endl;
       return 1;
     }
-    
+
     if (param->count(HMO_PRM) > 0 && param->count(GNM_PRM) == 0) {
       cerr << "Printing the HMM is optional with -gnm only.";
       cerr << endl;
       cerr << message << endl;
       return 1;
     }
-    
+
     if (param->count(SCO_PRM) > 0 && param->count(GNM_PRM) == 0) {
       cerr << "Printing the scores is optional with -gnm only.";
       cerr << endl;
@@ -526,7 +526,7 @@ int main(int argc, char * argv[]) {
     } else if (param->count(SCO_PRM) > 0 && param->count(GNM_PRM) > 0) {
       Util::checkFile(param->at(SCO_PRM));
     }
-    
+
 
     if (param->count(CND_PRM) > 0 && param->count(GNM_PRM) == 0) {
       cerr << "Printing candidate regions is optional with -gnm only.";
@@ -536,8 +536,8 @@ int main(int argc, char * argv[]) {
     } else if (param->count(CND_PRM) > 0 && param->count(GNM_PRM) > 0) {
       Util::checkFile(param->at(CND_PRM));
     }
-    
-	
+
+
     if (param->count(DIR_PRM) > 0 && param->count(GNM_PRM) == 0) {
       cerr << "Processing additional sequences is optional with -gnm only.";
       cerr << endl;
@@ -546,15 +546,15 @@ int main(int argc, char * argv[]) {
     } else if (param->count(DIR_PRM) > 0 && param->count(GNM_PRM) > 0) {
       Util::checkFile(param->at(DIR_PRM));
     }
-    
+
     if (param->count(MSK_PRM) > 0 && param->count(GNM_PRM) > 0) {
       Util::checkFile(param->at(MSK_PRM));
     }
-    
+
     if (param->count(RPT_PRM) > 0 && param->count(GNM_PRM) > 0) {
       Util::checkFile(param->at(RPT_PRM));
     }
-    
+
     // Print out the parameters table
     typedef map<string, string> myMap;
     myMap::iterator sIter = param->begin();
@@ -565,10 +565,10 @@ int main(int argc, char * argv[]) {
       sIter++;
     }
     cout << endl;
-    
+
     // Start!
     drive(param);
-    
+
     // Clear parameters when done.
     param->clear();
     delete param;
@@ -577,7 +577,7 @@ int main(int argc, char * argv[]) {
     cerr << endl;
     cerr << message << endl;
   }
-  
+
   //return EXIT_SUCCESS;
   return 0;
 }

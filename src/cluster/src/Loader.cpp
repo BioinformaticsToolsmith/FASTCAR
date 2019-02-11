@@ -9,9 +9,82 @@
  * multiple threads
  */
 #include "Loader.h"
-#include "ClusterFactory.h"
-#include "DivergencePoint.h"
-#include <omp.h>
+#include "Runner.h"
+
+static uint64_t num_overflow = 0;
+std::string next_histogram(std::string cur_type)
+{
+	if (cur_type == "uint8_t") {
+		return "uint16_t";
+	} else if (cur_type == "uint16_t") {
+		return "uint32_t";
+	} else {
+		return "uint64_t";
+	}
+}
+
+template<class T>
+std::string Loader<T>::get_warning()
+{
+	if (num_overflow == 0) {
+		return "";
+	} else {
+		std::ostringstream oss;
+		oss << "For " << num_overflow << " sequences, the histogram type " << Runner::get_datatype() << " was too small for holding sequences." << endl;
+		oss << "Performance may be slightly hindered, but can be improved by increasing the integral type (--datatype " << next_histogram(Runner::get_datatype())  << ")" << endl;
+		return oss.str();
+	}
+}
+
+
+
+template<class V>
+void Loader<V>::fill_table(KmerHashTable<unsigned long, V> &table, ChromosomeOneDigit *chrom, std::vector<V>& values)
+{
+	const int k = table.getK();
+	auto segment = chrom->getSegment();
+	const char *seg_bases = chrom->getBase()->c_str();
+	for (vector<int> *v : *segment) {
+		int start = v->at(0);
+		int end = v->at(1);
+
+		// Hani Z Girgis added the following line
+		// It is possible
+		if(end - start + 1 >= k){
+			int r = table.wholesaleIncrementNoOverflow(seg_bases, start, end - k + 1);
+			if (r == -1) {
+				num_overflow++;
+				// #pragma omp critical
+				// {
+				// 	std::ostringstream oss;
+				// 	oss << "In header \"" << chrom->getHeader() << "\"" << endl;
+				// 	oss << "Histogram type " << Runner::get_datatype() << " is too small for holding sequences." << endl;
+				// 	oss << "Performance may be slightly hindered, but can be improved by increasing the integral type (--datatype " << next_histogram(Runner::get_datatype())  << ")" << endl;
+				// 	_loader_warning = oss.str();
+				// 	cerr << get_warning() << endl;
+				// }
+			}
+		}
+	}
+
+	std::string header = chrom->getHeader();
+	header = header.substr(1, header.find(' ')-1);
+	// Hani Z. Girgis added the following lines on 10/3/2018
+	// This should result in significant speed up.
+	unsigned long tableSize = table.getMaxTableSize();
+	values.reserve(values.size() + tableSize);
+	const V * valueArray = table.getValues();
+
+	copy(&valueArray[0], &valueArray[tableSize], back_inserter(values));
+
+    // Commented out by Hani Z. Girgis on 10/3/2018 and replaced by the code above
+	// std::vector<std::string> *keys = table.getKeys();
+	// for (std::string str : *keys) {
+	// 	values.push_back(table.valueOf(str.c_str()));
+	// }
+	// keys->clear();
+	// delete keys;
+}
 
 template<class T>
 bool Loader<T>::done() const
@@ -35,27 +108,56 @@ void Loader<T>::preload(int tid)
 }
 
 
+// Modified by Hani Z. Girgis on Oct 2, 2018
 template<class T>
 Point<T>* Loader<T>::get_point(std::string header, const std::string &base, uintmax_t& id, int k)
 {
+	std::string obase = "";
+	for (int i = 0; i < base.length(); i++) {
+		if (base[i] == 'A' || base[i] == 'C' ||
+		    base[i] == 'G' || base[i] == 'T') {
+			obase += base[i];
+		}
+	}
+	ChromosomeOneDigit * chrom;
+	if(Util::isDna){
+		chrom = new ChromosomeOneDigitDna();
+	}else{
+		chrom = new ChromosomeOneDigitProtein();
+	}
+
+	chrom->setHeader(header);
+	chrom->appendToSequence(obase);
+	chrom->finalize();
+	Point<T> *p = Loader<T>::get_point(chrom, id, k);
+	delete chrom;
+	return p;
+}
+
+// Modified by Hani Z. Girgis on Oct 2, 2018
+template<class T>
+Point<T>* Loader<T>::get_point(ChromosomeOneDigit* chrom, uintmax_t& id, int k)
+{
+
 	KmerHashTable<unsigned long, T> table(k, 1);
-	KmerHashTable<unsigned long, uint64_t> table_k1(1, 0);
+	// Hani Z. Girgis changed the following line
+	// The table_k1 was initialized from 0 now it is 1
+	KmerHashTable<unsigned long, uint64_t> table_k1(1, 1);
 	std::vector<T> values;
 	vector<uint64_t> values_k1;
-	values.clear();
-	ChromosomeOneDigit chrom;
-	chrom.setHeader(header);
-	chrom.appendToSequence(base);
-	chrom.finalize();
-	fill_table<T>(table, &chrom, values);
-	fill_table<uint64_t>(table_k1, &chrom, values_k1);
+	// values.clear();
+
+	Loader<T>::fill_table(table, chrom, values);
+	Loader<uint64_t>::fill_table(table_k1, chrom, values_k1);
 //	int tmplate = get_template(chrom->getHeader(), templates);
-	Point<T> *p = new DivergencePoint<T>(values, chrom.size());
+	Point<T> *p = new DivergencePoint<T>(values, chrom->size());
 //	cout << "mag: " << ((DivergencePoint<T>*)p)->getPseudoMagnitude() << std::endl;
 	p->set_1mers(values_k1);
-	p->set_header(chrom.getHeader());
-	p->set_length(chrom.getBase()->length());
-	p->set_data_str(*chrom.getBase());
+	p->set_header(chrom->getHeader());
+	p->set_length(chrom->getBase()->length());
+	p->set_data_str(*chrom->getBase());
+	// Added by Hani Z. Girgis on Oct 7 2018
+	p->setK(k);
 	DivergencePoint<T>* q = dynamic_cast<DivergencePoint<T>*>(p);
 	const auto N = q->points.size();
 	double aq = (double) q->getPseudoMagnitude() / N;
@@ -69,8 +171,17 @@ Point<T>* Loader<T>::get_point(std::string header, const std::string &base, uint
 	p->set_id(id);
 	#pragma omp atomic
 	id++;
+
+	// Clean
+
 	return p;
 }
+
+
+
+
+
+
 
 template<class T>
 std::vector<Point<T>*> Loader<T>::load_next(int tid)

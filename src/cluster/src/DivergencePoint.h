@@ -38,6 +38,7 @@ public:
 		d->set_id(get_id());
 		d->set_length(get_length());
 		d->set_stddev(get_stddev());
+		d->set_data_str(Point<T>::get_data_str());
 		return d;
 	}
 	DivergencePoint* create() const {

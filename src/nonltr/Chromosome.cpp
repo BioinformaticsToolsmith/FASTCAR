@@ -5,7 +5,6 @@
  *      Author: Hani Zakaria Girgis, PhD - NCBI/NLM/NIH
  */
 #include "Chromosome.h"
-#include <errno.h>
 
 Chromosome::Chromosome() {
 	header = string("");
@@ -113,12 +112,14 @@ void Chromosome::help(int len, bool canMerge) {
 
 	toUpperCase();
 
-	baseCount = new vector<int>(4, 0);
-	makeBaseCount();
+	if(Util::isDna){
+		baseCount = new vector<int>(4, 0);
+		makeBaseCount();
+	}
 
-	removeN();
+	removeAmbiguous();
 
-	if (canMerge && base.size() > 20) {
+	if (Util::isDna && (canMerge && base.size() > 20)) {
 		mergeSegments();
 	}
 
@@ -142,9 +143,10 @@ Chromosome::~Chromosome() {
 
 		// Util::deleteInVector(segment);
 		delete segment;
-
-		baseCount->clear();
-		delete baseCount;
+		if(Util::isDna){
+			baseCount->clear();
+			delete baseCount;
+		}
 	}
 	//cerr << "~Chromosome() 2" << endl;
 }
@@ -233,20 +235,21 @@ void Chromosome::toUpperCase() {
 /**
  * Segment coordinates are inclusive [s,e]
  **/
-void Chromosome::removeN() {
+void Chromosome::removeAmbiguous() {
 	// Store non-N index
 	int start = -1;
+	char uncertainChar = Util::isDna? 'N' : 'X';
 	for (int i = 0; i < base.size(); i++) {
-		if (base[i] != 'N' && start == -1) {
+		if (base[i] != uncertainChar && start == -1) {
 			start = i;
-		} else if (base[i] == 'N' && start != -1) {
+		} else if (base[i] == uncertainChar && start != -1) {
 			vector<int> * v = new vector<int>();
 			v->push_back(start);
 			v->push_back(i - 1);
 			segment->push_back(v);
 
 			start = -1;
-		} else if (i == base.size() - 1 && base[i] != 'N' && start != -1) {
+		} else if (i == base.size() - 1 && base[i] != uncertainChar && start != -1) {
 			vector<int> * v = new vector<int>();
 			v->push_back(start);
 			v->push_back(i);
@@ -255,9 +258,15 @@ void Chromosome::removeN() {
 			start = -1;
 		}
 	}
+
+	// Test code
+	// for(auto seg : *segment){
+	// 	cerr << seg->at(0) << "-" << seg->at(1) << endl;
+	// }
 }
 
 /**
+ * Applied to DNA only--not proteins.
  * If the gap between two consecutive segments is less than 10 bp.
  * Segments that are shorter than 20 bp are not added.
  */
@@ -397,6 +406,11 @@ int Chromosome::getEffectiveSize() {
 }
 
 int Chromosome::getGcContent() {
+	if(!Util::isDna){
+		cerr << "Calculating GC content on a protein sequence is not allowed." << endl;
+		throw std::exception();
+	}
+
 	int gc = 0;
 	int size = base.size();
 	for (int i = 0; i < size; i++) {
@@ -409,18 +423,24 @@ int Chromosome::getGcContent() {
 }
 
 void Chromosome::makeBaseCount() {
+	if(!Util::isDna){
+		cerr << "Counting nucleotides in a protein sequence is not allowed." << endl;
+		throw std::exception();
+	}
+
 	int size = base.size();
 	for (int i = 0; i < size; i++) {
 		switch (base.at(i)) {
 		case 'A':
-			baseCount->at(0)++;break
-;			case 'C':
+			baseCount->at(0)++;
+			break;
+;		case 'C':
 			baseCount->at(1)++;
 			break;
-			case 'G':
+		case 'G':
 			baseCount->at(2)++;
 			break;
-			case 'T':
+		case 'T':
 			baseCount->at(3)++;
 			break;
 		}
@@ -428,5 +448,10 @@ void Chromosome::makeBaseCount() {
 }
 
 vector<int> * Chromosome::getBaseCount() {
+	if(!Util::isDna){
+		cerr << "Counting nucleotides in a protein sequence is not allowed." << endl;
+		throw std::exception();
+	}
+
 	return baseCount;
 }

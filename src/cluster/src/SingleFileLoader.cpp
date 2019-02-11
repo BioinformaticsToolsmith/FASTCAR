@@ -82,3 +82,42 @@ std::pair<std::string, std::string*> SingleFileLoader::next()
 //	std::cout << "next(): " << diff / CLOCKS_PER_SEC << std::endl;
 	return ret;
 }
+ChromosomeOneDigitDna* SingleFileLoader::nextChrom()
+{
+	ChromosomeOneDigitDna* ret = NULL;
+	if (!in->good()) {
+		return ret;
+	}
+	if (is_first) {
+		safe_getline(*in, buffer);
+		is_first = false;
+	}
+	do {
+		if (buffer[0] == '>') {
+			if (ret != NULL)  {
+				ret->finalize();
+				return ret;
+			}
+			ret = new ChromosomeOneDigitDna();
+			ret->setHeader(buffer);
+		} else if (buffer[0] == ' ' || buffer[0] == '\t') {
+			bool all_spaces = true;
+			for (auto c : buffer) {
+				if (c != ' ' && c != '\t') {
+					all_spaces = false;
+				}
+			}
+			if (!all_spaces) {
+				std::ostringstream oss;
+				oss << ret->getHeader() << buffer;
+				std::string new_header = oss.str();
+				ret->setHeader(new_header);
+			}
+		} else {
+			ret->appendToSequence(buffer);
+		}
+		safe_getline(*in, buffer);
+	} while (in->good());
+	ret->finalize();
+	return ret;
+}

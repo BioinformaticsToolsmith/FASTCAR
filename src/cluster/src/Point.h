@@ -58,26 +58,41 @@ public:
 	const std::string & get_data_str() const { return data; };
 
 	void set_1mers(const vector<uint64_t> &vec) {
-		for (auto i = 0; i < 4; i++) {
-			one_mers[i] = vec[i];
-		}
+		// for (auto i = 0; i < Util::getAlphabetSize(); i++) {
+		// 	one_mers[i] = vec[i];
+		// }
+		one_mers = vector<uint64_t>(vec);
 	}
+
 	vector<uint64_t> get_1mers() const {
-		vector<uint64_t> vec;
-		for (auto i = 0; i < 4; i++) {
-			vec.push_back(one_mers[i]);
-		}
-		return vec;
+		// vector<uint64_t> vec;
+		// for (auto i = 0; i < Util::getAlphabetSize(); i++) {
+		// 	vec.push_back(one_mers[i]);
+		// }
+		// return vec;
+		return one_mers;
 	}
 	virtual unsigned long size() const = 0;
 	virtual void set_id(uintmax_t c_id) = 0;//{ id = c_id; };
 	virtual const uintmax_t get_id() const = 0;//{ return id; };
 	virtual void set_length(unsigned long len) = 0;
 	virtual unsigned long get_length() const = 0;
+
+	// Added by Hani Z. Girgis on Oct 7 2018
+	int getK(){
+		return k;
+	}
+	void setK(int k){
+		this->k = k;
+	}
+
 private:
-	uint64_t one_mers[4];
-        std::string header;
+	vector<uint64_t> one_mers;
+    std::string header;
 	std::string data;
+	// Added by Hani Z. Girgis on Oct 7 2018
+	// The k in k-mer used to build the table
+	int k;
 };
 
 #endif

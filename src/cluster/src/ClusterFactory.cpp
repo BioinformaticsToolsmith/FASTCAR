@@ -709,7 +709,7 @@ std::vector<Point<T>*> ClusterFactory<T>::build_points(vector<string> fileList, 
 	for (unsigned i = 0; i < fsize; i++) {
 		p++;
 		ChromListMaker *maker = new ChromListMaker(fileList.at(i));
-		const std::vector<Chromosome *> * chromList = maker->makeChromOneDigitList();
+		const std::vector<Chromosome *> * chromList = maker->makeChromOneDigitDnaList();
 		unsigned csize = chromList->size();
 #pragma omp parallel for ordered
 		for (unsigned h = 0; h < csize; h++) {

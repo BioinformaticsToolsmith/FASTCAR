@@ -8,14 +8,25 @@
  * shared indivual features can be shared through hashing if sequence
  * id's are set.
  */
-#ifndef FEATURES_H
-#define FEATURES_H
+#ifndef FEATURE_H
+#define FEATURE_H
 
-#include "SingleFeature.h"
-#include "Selector.h"
+// #include "SingleFeature.h"
+
 #include <cmath>
 #include <algorithm>
 #include <map>
+#include <functional>
+#include <numeric>
+#include <limits>
+#include <vector>
+#include <iostream>
+#include <iterator>
+
+#include "DivergencePoint.h"
+#include "../../utility/GlobAlignE.h"
+
+using namespace std;
 
 #define	FEAT_ALIGN               (1UL << 0)
 #define	FEAT_HELLINGER           (1UL << 1)
@@ -59,6 +70,18 @@ enum class Combo {
 	x2y
 };
 
+template<class T>
+struct pra {
+	Point<T>* first;
+	Point<T>* second;
+	double val;
+	pra() {}
+	pra(const pra<T>&f) : first(f.first), second(f.second), val(f.val) {}
+	pra(Point<T>* a, Point<T>* b, double c) : first(a), second(b), val(c) {}
+	pra<T> deep_clone() const {
+		return pra(first->clone(), second->clone(), val);
+	}
+};
 
 /*
  * Usage:
@@ -87,16 +110,19 @@ public:
 	Feature<T> operator=(const Feature<T>& feat_);
 	Feature(const int k_) : k(k_) {
 		flags = 0;
+
+		// Modified by Hani Z. Girgis on Oct 9 2018 to enable processing protein
 		auto freverse = [](int idx, int k) {
 			int sum = 0;
+			const auto A = Util::getAlphabetSize();
 			for (int i = 0; i < k; i++) {
-				int rem = idx % 4;
-				idx /= 4;
-				sum = 4 * sum + rem;
-
+				int rem = idx % A;
+				idx /= A;
+				sum = A * sum + rem;
 			}
 			return sum;
 		};
+
 		auto freverse_complement = [](int idx, int k) {
 			std::vector<int> v;
 			for (int i = 0; i < k; i++) {
@@ -110,13 +136,19 @@ public:
 			return sum;
 		};
 
-		uint64_t k4 = 1;
+		uint64_t k4_22 = 1;
 		for (int i = 0; i < k; i++) {
-			k4 *= 4;
+			k4_22 *= Util::getAlphabetSize();
 		}
-		for (int i = 0; i < k4; i++) {
+
+		for (int i = 0; i < k4_22; i++) {
 			reverse.push_back(freverse(i, k));
-			reverse_complement.push_back(freverse_complement(i, k));
+		}
+
+		if(Util::isDna){
+			for (int i = 0; i < k4_22; i++) {
+				reverse_complement.push_back(freverse_complement(i, k));
+			}
 		}
 	}
 	void add_feature(uint64_t f_flags, Combo combo=Combo::xy);
@@ -124,7 +156,7 @@ public:
 	vector<std::string> feat_names();
 	static std::string feat_name(uint64_t single);
 	void finalize();
-
+	// std::vector<double> get_raw(const vector<pair<Point<T>*,Point<T>*> >&, int index) const;
 	void remove_feature() { // Tear down features SPECIFIC to last pairing
 		// auto indices_to_rm = combos.back().second;
 		// combos.pop_back();
@@ -165,6 +197,9 @@ public:
 		normalize_cache(cache);
 		return cache;
 	};
+
+	// This should be called on the singles, which can be calculated
+	// using the compute method
 	double operator()(int col, const vector<double>& cache) const {
 		auto pr = combos.at(col);
 		Combo combo = pr.first;
@@ -322,11 +357,8 @@ private:
 	std::vector<bool> get_sims() const { return is_sims; };
 	std::vector<bool> get_finalized() const { return is_finalized; };
 
-
-
-
-
-	int k; int get_k() const { return k; };
+	int k;
+	int get_k() const { return k; };
 	uint64_t flags;
 	bool do_save;
 	std::vector<std::pair<Combo,
@@ -341,6 +373,9 @@ private:
 
 	std::map<std::pair<uintmax_t,uintmax_t>, double> atable;
 	std::map<std::tuple<uintmax_t, uintmax_t, uint8_t>, double> ltable;
+
+	// Added by Hani Z. Girgis
+	// std::vector<double> tiedrank(const Point<T>& a);
 
 //	std::map<std::tuple<uintmax_t, uintmax_t, uint8_t>, double> * get_table() const { return ltable; }
 };
@@ -366,4 +401,7 @@ private:
 // 	vector<SingleFeature<T> > features;
 // 	std::function<double(vector<double>)> combo;
 // };
+
+//#include "Feature.cpp"
+
 #endif

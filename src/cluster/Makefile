@@ -1,8 +1,8 @@
 TARGET ?= fastcar
-VERSION ?= 0.5.1
+VERSION ?= 0.7.0
 CXX ?= g++
 ifeq ($(debug),yes)
-	CXXFLAGS += -ggdb -DDEBUG -fno-omit-frame-pointer -fopenmp -DNOPROG
+	CXXFLAGS += -ggdb -fno-omit-frame-pointer -fopenmp -DMUTDEBUG
 #	LDFLAGS += -fsanitize=thread
 else
 	CXXFLAGS += -fopenmp -O3 -march=native -g
@@ -11,7 +11,7 @@ CXXFLAGS += -std=c++11 -DVERSION=\"$(VERSION)\"
 LDFLAGS += -lm -lstdc++
 
 SOURCES := $(shell find ./src -name '*.cpp')
-OBJECTS = $(SOURCES:%.cpp=bin/%.o) ../train/Trainer.o ../train/Predictor.o ../train/HandleSeq.o ../train/MultiMute.o ../train/SingleMute.o
+OBJECTS = $(SOURCES:%.cpp=bin/%.o) ../train/Trainer.o ../train/Predictor.o ../train/HandleSeq.o ../train/MultiMute.o ../train/SingMute.o
 BIN_OBJECTS := $(shell find  ../../bin/ -mindepth 2 -name '*.o')
 
 all: $(TARGET)

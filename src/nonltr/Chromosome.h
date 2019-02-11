@@ -64,7 +64,7 @@ protected:
 	void readFasta();
 	void readFasta(int);
 	void toUpperCase();
-	void removeN();
+	void removeAmbiguous();
 	void mergeSegments();
 	virtual void help(int, bool);
 	void makeSegmentList();

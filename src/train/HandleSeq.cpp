@@ -9,11 +9,15 @@
  */
 
 #include "HandleSeq.h"
-
+#include <omp.h>
 // d
-HandleSeq::HandleSeq(int m, bool d) {
-	mode = m;
-	disable = d;
+HandleSeq::HandleSeq(int m, std::random_device::result_type rnd) {
+
+	mode = m & HandleSeq::BOTH;
+	enableTrans = m & HandleSeq::TRANSLOCATION;
+	enableRev = m & HandleSeq::REVERSION;
+	random = new LCG(rnd);
+	// disable = (m & HandleSeq::ATYPICAL) > 0 ? 0 : 1;
 }
 
 pair<vector<string>, vector<string>> HandleSeq::parseFile(string fileName) {
@@ -68,10 +72,10 @@ pair<vector<string>, vector<string>> HandleSeq::parseFile(string fileName) {
 	}
 }
 
-pair<float, string> HandleSeq::mutate(string sequence, int muteRate) {
+pair<float, string> HandleSeq::mutate(string sequence, int muteRate, int split) {
 	percMute = muteRate;
 	if (muteRate == 0) {
-		return std::make_pair(100, sequence);
+		return std::make_pair(1, sequence);
 	}
 	auto nucls = countNucl(sequence);
 	//Assing the percent of each nucleotide in the sequence
@@ -96,33 +100,39 @@ pair<float, string> HandleSeq::mutate(string sequence, int muteRate) {
 	}
 	//Otherwise, assing a random percentage to both
 	else {
-		percMulti = rand() % percMute;
+		percMulti = split;
+//		percMulti = random.randMod<int>(percMute);
 		percSing = percMute - percMulti;
 	}
 	//Define a new multiple mutation
-	MultiMute * multi = new MultiMute(percAs, percCs, percGs, percTs,
-			percMulti, disable);
+	MultiMute multi(percAs, percCs, percGs, percTs,
+			percMulti, enableTrans, enableRev, random->nextRandSeed());
 	//Run the multiple mutations,
 	//get back its vector of what is valid to mutate and what isn't
-	vector<bool> mutes = multi->genMulti(seq);
-	SingleMute * sing = new SingleMute(percAs, percCs, percGs, percTs,
-			percSing);
-	//Now run single mutations
-	sing->genSing(seq, mutes);
-	float alignmentLength = multi->getAlignmentLength() + sing->getAlignmentLength() + length;
-	//cout << alignmentLength << endl;
-	float IBP = length - multi->getIBP() - sing->getIBP();
-	//cout << IBP << endl;
+	vector<bool> mutes = multi.genMulti(seq);
+	uint64_t cnt = 0;
+	for (bool b : mutes) {
+		cnt += b ? 1 : 0;
+	}
+	if (mutes.size() != seq->length()) {
+		cerr << "mutation size is not matching the multi-sequence" << endl;
+		throw 100;
+	}
+	SingMute sing(percAs, percCs, percGs, percTs,
+		      percSing, seq, mutes, random->nextRandSeed());
+	float alignmentLength = multi.getAlignmentLength() + sing.getAlignmentLength() + length;
+//	cout << "alignLength: " << alignmentLength << endl;
+	float IBP = length - multi.getIBP() - sing.getIBP();
+//	cout << "ibp: " << IBP << endl;
 	float alignment = IBP / alignmentLength;
+//	cout << "ratio: size: " << mutes.size() << " expected: " << (float)cnt / mutes.size() << " found: " << ((float)length - multi.getIBP()) / ((float)multi.getAlignmentLength() + length) << " align: " << alignment << endl;
 	//assign the sequence to the
 	//value that the seq pointer stores to
-	sequence = *seq;
 	//clear the heap
 	delete seq;
-	delete sing;
-	delete multi;
 	//Return the now mutated sequence
-	return make_pair(alignment, sequence);
+	std::string outseq = sing.getSeq();
+	return make_pair(alignment, outseq);
 }
 
 vector<int> HandleSeq::countNucl(string sequence) {

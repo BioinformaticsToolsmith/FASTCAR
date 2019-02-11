@@ -11,9 +11,18 @@
 #ifndef LOADER_H
 #define LOADER_H
 
-#include "Point.h"
+#include <omp.h>
+
 #include "SingleFileLoader.h"
-#include "ClusterFactory.h"
+#include "Point.h"
+#include "DivergencePoint.h"
+#include "../../nonltr/KmerHashTable.h"
+// Add by Hani Z. Girgis, PhD on Oct 2, 2018
+#include "../../nonltr/ChromosomeOneDigit.h"
+#include "../../nonltr/ChromosomeOneDigitDna.h"
+#include "../../nonltr/ChromosomeOneDigitProtein.h"
+
+
 
 template<class T>
 class Loader {
@@ -41,6 +50,9 @@ public:
 	};
 
 	~Loader() {
+		if (get_warning() != "") {
+			cerr << get_warning() << endl;
+		}
 		cache_list.clear();
 		id_list.clear();
 		if (maker != NULL) {
@@ -56,6 +68,10 @@ public:
 	std::vector<Point<T>*> load_next(int tid);
 
 	static Point<T>* get_point(std::string header, const std::string &base, uintmax_t& id, int k);
+	static Point<T>* get_point(ChromosomeOneDigit* dna, uintmax_t& id, int k);
+
+	static void fill_table(KmerHashTable<unsigned long, T> &table, ChromosomeOneDigit *chrom, std::vector<T>& values);
+	static std::string get_warning();
 private:
 
 	std::pair<std::string,std::string*> next();
@@ -69,5 +85,7 @@ private:
 	std::vector<std::string> files;
 	size_t file_idx = 0;
 	SingleFileLoader *maker = NULL;
+
 };
+
 #endif
