@@ -48,3 +48,9 @@ The most important parameter, --id, controls the identity of the sequences.
 
 
 If the argument is not listed here, it is interpreted as an input file.
+
+
+License
+
+Academic use: The software is provided as-is under the GNU GPLv3.
+Any restrictions to use for-profit or non-academics: License needed.
