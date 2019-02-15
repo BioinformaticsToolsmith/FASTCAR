@@ -810,9 +810,14 @@ void Predictor<T>::train()
 	}
 	cout << "Training size: " << training.size() << endl;
 	cout << "Testing size: " << testing.size() << endl;
-	// for (auto p : training) {
-	// 	cout << p.val << " ";
-	// }
+	for (auto p : training) {
+		delete p.first;
+		delete p.second;
+	}
+	for (auto p : testing) {
+		delete p.first;
+		delete p.second;
+	}
 	cout << endl;
 	feat.set_save(false);
 	training.clear();

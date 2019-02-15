@@ -1,5 +1,5 @@
 TARGET ?= fastcar
-VERSION ?= 0.7.0
+VERSION ?= 0.7.1
 CXX ?= g++
 ifeq ($(debug),yes)
 	CXXFLAGS += -ggdb -fno-omit-frame-pointer -fopenmp -DMUTDEBUG
