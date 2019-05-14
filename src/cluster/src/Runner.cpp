@@ -153,7 +153,7 @@ int Runner::run()
 		sequences.resize(idx);
 		if (pred64 != NULL) {
 			Runner::set_datatype(pred64->get_datatype());
-		} else {
+		} else if (Runner::get_datatype() == "") {
 #pragma omp parallel for reduction(max:largest_count)
 		for (int i = 0; i < sequences.size(); i++) {
 			auto chrom = sequences[i];
@@ -648,7 +648,6 @@ int Runner::do_run(std::vector<ChromosomeOneDigit* > &seqs)
 	std::sort(seqs.begin(), seqs.end(), [](DNA* a, DNA* b) {
 			return a->getBase()->length() < b->getBase()->length();
 		});
-		cout << "sample_size: " << sample_size << endl;
 		double increment = std::max(1.0, (double)seqs.size() / sample_size);
 		for (double i = 0; round(i) < seqs.size(); i += increment) {
 			indices.push_back(round(i));
@@ -668,7 +667,6 @@ int Runner::do_run(std::vector<ChromosomeOneDigit* > &seqs)
 
 	indices.clear();
 	mem_used("after selection");
-	cout << "TRpoints.size(): " << trpoints.size() << endl;
 
 	// std::sort(trpoints.begin(), trpoints.end(), [](const Point<T>* a, const Point<T>* b) {
 	// 		return a->get_length() < b->get_length(); });
@@ -800,7 +798,6 @@ void Runner::run_search(Predictor<T>& pred)
 	}
 	cout << "Time to compute alignments: " << clockCompute.total() << endl;
 	mem_used("after loop");
-	cout << "# of predicted positive: " << num_pred_pos << endl;
 	std::string warn = Loader<T>::get_warning();
 	if (warn != "") {
 		cout << warn << endl;
@@ -902,7 +899,6 @@ void Runner::run_all(Predictor<T>& pred)
 	}
 	cout << "Time to compute alignments: " << clockCompute.total() << endl;
 	mem_used("after loop");
-	cout << "# of predicted positive: " << num_pred_pos << endl;
 	std::string warn = Loader<T>::get_warning();
 	if (warn != "") {
 		cout << warn << endl;

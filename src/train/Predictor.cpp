@@ -852,7 +852,7 @@ void Predictor<T>::train()
 		clock.begin();
 		train_class(&feat);
 		clock.end();
-		cout << "Classification training time: " << clock.total();
+		cout << "Classification training time: " << clock.total() << endl;
 
 		if (mode & PRED_MODE_REGR) {
 			// vector<Point<T>*> f_points_tr, f_points_test;
@@ -886,7 +886,7 @@ void Predictor<T>::train()
 		clock.begin();
 		train_regr(&feat);
 		clock.end();
-		cout << "Regression training time: " << clock.total();
+		cout << "Regression training time: " << clock.total() << endl;
 	}
 	cout << "Training size: " << training.size() << endl;
 	cout << "Testing size: " << testing.size() << endl;
@@ -972,10 +972,10 @@ void Predictor<T>::train_class(Feature<T>* feat)
 	auto pr = class_train(training, *feat_c, id);
 	c_glm = pr.second;
 	auto train_results = class_test(training, *feat_c, c_glm, id);//, "train");
-	cout << "Training ACC: " << get<0>(train_results) << " " << get<1>(train_results) << " " << get<2>(train_results) << endl;
+	cout << "Training Acc: " << get<0>(train_results) << " Sens: " << get<1>(train_results) << " Spec: " << get<2>(train_results) << endl;
 	auto test_results = class_test(testing, *feat_c, c_glm, id);//, "test");
 	double class_acc = get<0>(test_results);
-	cout << "Testing ACC: " << class_acc << " " << get<1>(test_results) << " " << get<2>(test_results) << endl;
+	cout << "Testing Acc: " << class_acc << " Sens: " << get<1>(test_results) << " Spec: " << get<2>(test_results) << endl;
 
 	cout << "Features: "<< endl;
 	for (auto line : feat_c->feat_names()) {
