@@ -753,13 +753,13 @@ void Runner::run_search(Predictor<T>& pred)
 
 			Progress progress(queries.size() * pts.size(), "Computing similarity");
 			clockCompute.begin();
-#pragma omp parallel for schedule(dynamic)
+
 			for (uintmax_t q_idx = 0; q_idx < queries.size(); q_idx++) {
 				auto q = queries.at(q_idx);
 				size_t q_len = q->get_length();
 				size_t begin_length = q_len * similarity;
 				size_t end_length = q_len / similarity;
-
+#pragma omp parallel for
 				for (int h = 0; h < pts.size(); h++) {
 					int tid = omp_get_thread_num();
 					auto p = pts.at(h);
