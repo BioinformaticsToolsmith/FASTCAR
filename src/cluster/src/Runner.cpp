@@ -151,7 +151,9 @@ int Runner::run()
 		}
 		progress.end();
 		sequences.resize(idx);
-
+		if (pred64 != NULL) {
+			Runner::set_datatype(pred64->get_datatype());
+		} else {
 #pragma omp parallel for reduction(max:largest_count)
 		for (int i = 0; i < sequences.size(); i++) {
 			auto chrom = sequences[i];
@@ -162,6 +164,7 @@ int Runner::run()
 			if (l_count > largest_count) {
 				largest_count = l_count;
 			}
+		}
 		}
 		clockDT.end();
 		cout << "Time for computing datatype: " << clockDT.total() << endl;
