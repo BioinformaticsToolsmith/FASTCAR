@@ -12,43 +12,64 @@ see: https://stackoverflow.com/questions/29057437/compile-openmp-programs-with-g
 Linux/Unix compilation:
 make
 
-Usage: bin/fastcar *.fasta --query queryFile.fasta [--id 0.90] [--mode rc] [--feat fast|slow] [--kmer 3] [--chunk 10000] [--output output_first_string] [--sample 3000] [--threads 4]
+Usage: bin/fastcar *.fasta --query queryFile1.fasta [--query queryFile2.fasta] [--chunk 10000] [--id 0.90] [--kmer 3] [--chunk 10000] [--output output_first_string] [--sample 300] [--threads 4]
+Or:    bin/fastcar *.fasta --all-vs-all [--chunk 10000] [--id 0.90] [--kmer 3] [--chunk 10000] [--output output_first_string] [--sample 300] [--threads 4]
 
 All arguments except for id can be shortened to one dash followed by the first letter of the argument,
 for example: --query => -q
 
-The most important parameter, --id, controls the identity of the sequences.
+--id controls the identity of the sequences, if classification is enabled (by default)
 
 --query is a required parameter which takes in a query file, which searches against the database FASTA files
 
+--all-vs-all can be used instead of supplying a query. This will compute all similarities against itself.
+
+--mut-type will control the mutation type. See --help for details.
+
+--chunk specifies chunk size, or, how many sequences are read in at once and processed. The larger
+	the size, the more memory is used. However, this may lead to faster processing as more
+	sequences can be processed at once.
+
+--output specifies the output file prefix, to which .searchXXX is appended.
+
+--no-format will not strip the header names after the first space, and it will delimit the output by '!'.
 --mode specifies the mode[s], which can be "r" for regression and "c" for classification.
        They can be combined to form the default mode, which regresses identity scores above a cutoff.
 
 --feat specifies which features are used. By default, "fast" (9 features) are used. However, for added
        potential accuracy, "slow" can be used, utilizing 2 more features which are slower.
 
---output specifies the output file prefix, to which .searchXXX is appended.
-
---chunk specifies chunk size, or, how many sequences are read in at once and processed. The larger
-	the size, the more memory is used. However, this may lead to faster processing as more
-	sequences can be processed at once.
-
 --kmer decides the size of the kmers. It is by default automatically decided by average sequence length,
        but if provided, MeShClust can speed up a little by not having to find the largest sequence length.
        Increasing kmer size can increase accuracy, but increases memory consumption fourfold.
-
 
 
 --threads sets the number of threads to be used. By default OpenMP uses the number of available cores
 	  on your machine, but this parameter overwrites that.
 
 --sample selects the total number of sample pairs of sequences used for both training and testing.
-	 1500 is the default value.
+	 300 is the default value, generating 1500 positive and 3000 negative pairs.
+
+--all-vs-all Adding the flag --all-vs-all flag will run an all versus all search on the sequences in database file(s) provided.
+             The query flag is disregarded here.
+
+--dump weight.txt   Trains the model(s) and dumps the weights
+                    to the specified file, and immediately quits.
+
+--recover weight.txt   Recovers the weights from file, and sets parameters
+                       from those weights (e.g. k-mer size)
+
+--list     Provide a list of filenames instead of passing as extra parameters
+--qlist    Provide a list of filenames instead of passing as query file(s)
 
 
 
 If the argument is not listed here, it is interpreted as an input file.
 
+
+N.B. Running with --dump first and then re-running with the same parameters
+     except for replacing --dump with --recover
+      may consume less memory, as some data structures are saved in memory throughout.
 
 License
 

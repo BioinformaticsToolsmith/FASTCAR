@@ -1,5 +1,5 @@
 TARGET ?= fastcar
-VERSION ?= 0.7.1
+VERSION ?= 0.9.0
 CXX ?= g++
 ifeq ($(debug),yes)
 	CXXFLAGS += -ggdb -fno-omit-frame-pointer -fopenmp -DMUTDEBUG
@@ -11,7 +11,7 @@ CXXFLAGS += -std=c++11 -DVERSION=\"$(VERSION)\"
 LDFLAGS += -lm -lstdc++
 
 SOURCES := $(shell find ./src -name '*.cpp')
-OBJECTS = $(SOURCES:%.cpp=bin/%.o) ../train/Trainer.o ../train/Predictor.o ../train/HandleSeq.o ../train/MultiMute.o ../train/SingMute.o
+OBJECTS = $(SOURCES:%.cpp=bin/%.o) ../train/Trainer.o ../train/Predictor.o ../train/HandleSeq.o ../train/MultiMute.o ../train/SingMute.o ../train/Clock.o
 BIN_OBJECTS := $(shell find  ../../bin/ -mindepth 2 -name '*.o')
 
 all: $(TARGET)
@@ -30,6 +30,8 @@ $(TARGET): $(OBJECTS) $(BIN_OBJECTS)
 ../train/MultiMute.o: ../train/MultiMute.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 ../train/SingleMute.o: ../train/SingleMute.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+../train/Clock.o: ../train/Clock.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 bin/%.o: %.cpp
 	mkdir -p $(@D)

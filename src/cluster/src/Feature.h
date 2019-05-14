@@ -110,7 +110,7 @@ public:
 	Feature<T> operator=(const Feature<T>& feat_);
 	Feature(const int k_) : k(k_) {
 		flags = 0;
-
+		do_save = false;
 		// Modified by Hani Z. Girgis on Oct 9 2018 to enable processing protein
 		auto freverse = [](int idx, int k) {
 			int sum = 0;
@@ -360,7 +360,7 @@ private:
 	int k;
 	int get_k() const { return k; };
 	uint64_t flags;
-	bool do_save;
+	bool do_save = false;
 	std::vector<std::pair<Combo,
 			      std::vector<int>
 			      > > combos;

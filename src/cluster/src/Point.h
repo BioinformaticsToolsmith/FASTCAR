@@ -77,6 +77,8 @@ public:
 	virtual const uintmax_t get_id() const = 0;//{ return id; };
 	virtual void set_length(unsigned long len) = 0;
 	virtual unsigned long get_length() const = 0;
+	void set_effective_size(unsigned long len) { effective_size = len; };
+	unsigned long get_effective_size() const { return effective_size; };
 
 	// Added by Hani Z. Girgis on Oct 7 2018
 	int getK(){
@@ -86,10 +88,13 @@ public:
 		this->k = k;
 	}
 
+	void set_index(uintmax_t idx) { index = idx; }
+	uintmax_t get_index() const { return index; }
 private:
 	vector<uint64_t> one_mers;
-    std::string header;
+	std::string header;
 	std::string data;
+	uintmax_t index, effective_size;
 	// Added by Hani Z. Girgis on Oct 7 2018
 	// The k in k-mer used to build the table
 	int k;

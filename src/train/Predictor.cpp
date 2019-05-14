@@ -15,6 +15,7 @@
 #include "HandleSeq.h"
 #include "../cluster/src/Progress.h"
 #include "Random.h"
+#include "Clock.h"
 #include <algorithm>
 #include <iomanip>
 
@@ -300,7 +301,7 @@ bool Predictor<T>::p_close(Point<T>* a, Point<T>* b)
 
 
 template<class T>
-std::pair<matrix::Matrix,matrix::Matrix> generate_feat_mat(const vector<pra<T> > &data, Feature<T>& feat, double cutoff, bool do_print=false)//bool classify, double cutoff, double smin, double smax)
+std::pair<matrix::Matrix,matrix::Matrix> generate_feat_mat(const vector<pra<T> > &data, Feature<T>& feat, double cutoff)//bool classify, double cutoff, double smin, double smax)
 {
 	bool classify = (cutoff > 0);
 	int nrows = data.size();
@@ -326,17 +327,6 @@ std::pair<matrix::Matrix,matrix::Matrix> generate_feat_mat(const vector<pra<T> >
 			double val = feat(col-1, cache);
 			feat_mat.set(row, col, val);
 		}
-	}
-	if (do_print) {
-		for (int row = 0; row < data.size(); row++) {
-			cout << "FM " << labels.get(row, 0) << " ";
-			for (int col = 0; col < ncols; col++) {
-				auto val = feat_mat.get(row, col);
-				cout << val << " ";
-			}
-			cout << endl;
-		}
-		cout << endl;
 	}
 	return std::make_pair(feat_mat, labels);
 }
@@ -365,6 +355,44 @@ std::string bin2acgt(const std::string& input)
 	return out;
 }
 
+template<class T>
+size_t remove_uniform(std::vector<pra<T> > &vec, size_t trim_size, std::vector<pra<T> > &out_vec)
+{
+	size_t N = vec.size();
+	double inc = (double)N / trim_size;
+	if (inc <= 1) {
+		inc = 1;
+	}
+	size_t output_size = 0;
+	double i_keep = 0;
+	for (size_t i = 0; i < N; i++) {
+		if (i == round(i_keep)) {
+			output_size++;
+			out_vec.push_back(vec[i]);
+			i_keep += inc;
+		} else {
+			delete vec[i].second;
+		}
+	}
+	return output_size;
+}
+
+template<class T>
+size_t split_thd_data(std::vector<std::vector<pra<T> > >& vec, double id, std::vector<pra<T> >& pos, std::vector<pra<T> >& neg)
+{
+	for (int i = 0; i < vec.size(); i++) {
+		for (auto pr : vec[i]) {
+			if (pr.val > id) {
+				pos.push_back(pr);
+			} else {
+				neg.push_back(pr);
+			}
+		}
+		vec[i].clear();
+	}
+	return min(pos.size(), neg.size());
+}
+
 std::string uniqheader(std::string hdr)
 {
 	std::string out = "";
@@ -382,6 +410,24 @@ std::string uniqheader(std::string hdr)
 		return out;
 	}
 
+}
+
+template<class T>
+void write_dataset(const vector<pra<T> >& dataset, std::string filename)
+{
+	std::ofstream out(filename);
+	for (size_t i = 0; i < dataset.size(); i++) {
+		auto A = dataset[i].first;
+		auto B = dataset[i].second;
+		double val = dataset[i].val;
+		out << A->get_header() << " " << B->get_header() << " " << val << endl;
+		// out << A->get_data_str() << endl;
+		// out << B->get_data_str() << endl;
+		out << A->get_length() << " " << B->get_length() << endl;
+//		out << A->get_id() << " " << B->get_id() << endl;
+		((DivergencePoint<T>*)A)->display(out);
+		((DivergencePoint<T>*)B)->display(out);
+	}
 }
 template<class T>
 void Predictor<T>::train(const vector<Point<T> *> &points, uintmax_t &_id, size_t num_sample)
@@ -413,6 +459,8 @@ void Predictor<T>::train(const vector<Point<T> *> &points, uintmax_t &_id, size_
 	training.clear();
 	testing.clear();
 	if (mode & PRED_MODE_CLASS) {
+		Clock clock;
+		clock.begin();
 		vector<std::random_device::result_type> train_seeds, test_seeds;
 		for (size_t i = 0; i < f_points_tr.size(); i++) {
 			train_seeds.push_back(random.nextRandSeed());
@@ -421,16 +469,19 @@ void Predictor<T>::train(const vector<Point<T> *> &points, uintmax_t &_id, size_
 			test_seeds.push_back(random.nextRandSeed());
 		}
 		std::vector<pra<T> > pos_buf, neg_buf;
+		std::vector<std::vector<pra<T> > > thd_data(f_points_tr.size());
+		// std::vector<std::vector<pra<T> > > thd_data_neg(f_points_tr.size());
 		cout << "mutating sequences" << endl;
-		size_t counter = 0;
+		int n_pos = 5;
+		int n_neg = 10;
 		// struct timespec start, stop;
 		// clock_gettime(CLOCK_MONOTONIC, &start);
 		Progress prog1(f_points_tr.size(), "Generating training");
-//		#pragma omp parallel for
+		#pragma omp parallel for
 		for (size_t i = 0; i < f_points_tr.size(); i++) {
 			auto p = f_points_tr[i];
-			mutate_seqs(p, 5, pos_buf, neg_buf, 100 * id, 100, _id, train_seeds[i]);
-			mutate_seqs(p, 10, pos_buf, neg_buf, min_id, 100 * id, _id, train_seeds[i]);
+			mutate_seqs(p, n_pos, thd_data[i], 100 * id, 100, _id, train_seeds[i]);
+			mutate_seqs(p, n_neg, thd_data[i], min_id, 100 * id, _id, train_seeds[i]);
 			#pragma omp critical
 			prog1++;
 		}
@@ -439,96 +490,54 @@ void Predictor<T>::train(const vector<Point<T> *> &points, uintmax_t &_id, size_
 		// clock_gettime(CLOCK_MONOTONIC, &stop);
 		// printf("took %lu\n", stop.tv_sec - start.tv_sec);
 
-		counter = 0;
-		size_t buf_size = std::min(pos_buf.size(), neg_buf.size());
+		size_t buf_size = split_thd_data(thd_data, id, pos_buf, neg_buf);
+		// cout << "buf size: " << buf_size << endl;
+		// buf_size = min(buf_size, split_thd_data(thd_data_neg, id, neg_buf, neg_buf));
+		// cout << "buf size: " << buf_size << endl;
+//		size_t buf_size = std::min(pos_buf.size(), neg_buf.size());
 		cout << "training +: " << pos_buf.size() << endl;
 		cout << "training -: " << neg_buf.size() << endl;
-		auto pra_cmp = [](const pra<T> &a, const pra<T> &b) {
-			int fc = a.first->get_header().compare(b.first->get_header());
-			int sc = a.second->get_header().compare(b.second->get_header());
-			return fc < 0 || (fc == 0 && sc < 0);
+		auto pra_cmp = [&](const pra<T> &a, const pra<T> &b) {
+			// int fc = a.first->get_header().compare(b.first->get_header());
+			// int sc = a.second->get_header().compare(b.second->get_header());
+			// return fc < 0 || (fc == 0 && sc < 0);
+			return fabs(a.val - id) < fabs(b.val - id);
 		};
 		std::sort(pos_buf.begin(), pos_buf.end(), pra_cmp);
 		std::sort(neg_buf.begin(), neg_buf.end(), pra_cmp);
 
-		std::shuffle(pos_buf.begin(), pos_buf.end(), random.gen());
-		std::shuffle(neg_buf.begin(), neg_buf.end(), random.gen());
-		// for (auto p : pos_buf) {
-		// 	cout << "PB: " << p.first->get_header() << " " << p.second->get_header() << endl;
-		// }
-		// for (auto p : neg_buf) {
-		// 	cout << "NB: " << p.first->get_header() << " " << p.second->get_header() << endl;
-		// }
+		size_t num_pos = buf_size;
+		size_t num_neg = 2 * buf_size;
 
-		for (size_t i = 0; i < buf_size; i++) {
-			training.push_back(pos_buf[i].deep_clone());
+		num_pos = remove_uniform(pos_buf, num_pos, training);
+		num_neg = remove_uniform(neg_buf, num_neg, training);
 
-		}
-		for (size_t i = 0; i < 2 * buf_size && i < neg_buf.size(); i++) {
-			training.push_back(neg_buf[i].deep_clone());
-		}
-		for (auto p : pos_buf) {
-			delete p.first;
-			delete p.second;
-		}
-		for (auto p : neg_buf) {
-			delete p.first;
-			delete p.second;
-		}
 		pos_buf.clear();
 		neg_buf.clear();
+		thd_data.resize(f_points_test.size());
 		Progress prog2(f_points_test.size(), "Generating testing");
-//		#pragma omp parallel for
+		#pragma omp parallel for
 		for (size_t i = 0; i < f_points_test.size(); i++) {
 			auto p = f_points_test[i];
-			mutate_seqs(p, 5, pos_buf, neg_buf, 100 * id, 100, _id, test_seeds[i]);
-			mutate_seqs(p, 10, pos_buf, neg_buf, min_id, 100 * id, _id, test_seeds[i]);
+			mutate_seqs(p, n_pos, thd_data[i], 100 * id, 100, _id, test_seeds[i]);
+			mutate_seqs(p, n_neg, thd_data[i], min_id, 100 * id, _id, test_seeds[i]);
 #pragma omp critical
 			prog2++;
 		}
 		prog2.end();
-		buf_size = std::min(pos_buf.size(), neg_buf.size());
+		buf_size = split_thd_data(thd_data, id, pos_buf, neg_buf);
 		cout << "testing +: " << pos_buf.size() << endl;
 		cout << "testing -: " << neg_buf.size() << endl;
 		std::sort(pos_buf.begin(), pos_buf.end(), pra_cmp);
 		std::sort(neg_buf.begin(), neg_buf.end(), pra_cmp);
 
-		std::shuffle(pos_buf.begin(), pos_buf.end(), random.gen());
-		std::shuffle(neg_buf.begin(), neg_buf.end(), random.gen());
-		for (size_t i = 0; i < buf_size; i++) {
-			testing.push_back(pos_buf[i].deep_clone());
-		}
-		for (size_t i = 0; i < 2 * buf_size && i < neg_buf.size(); i++) {
-			testing.push_back(neg_buf[i].deep_clone());
-		}
-		for (auto p : pos_buf) {
-			delete p.first;
-			delete p.second;
-		}
-		for (auto p : neg_buf) {
-			delete p.first;
-			delete p.second;
-		}
-		// for (auto p : training) {
-		// 	std::string h1 = uniqheader(p.first->get_header());
-		// 	std::string h2 = uniqheader(p.second->get_header());
-		// 	cout << "%" << h1 << endl;
-		// 	cout << "%" << bin2acgt(p.first->get_data_str()) << endl;
-		// 	cout << "!" << h1 << "!" << h2 << "!" << p.val << endl;
-		// 	cout << "@" << h2 << endl;
-		// 	cout << "@" << p.second->get_data_str() << endl;
-		// }
+		num_pos = buf_size;
+		num_neg = 2 * buf_size;
+		num_pos = remove_uniform(pos_buf, num_pos, testing);
+		num_neg = remove_uniform(neg_buf, num_neg, testing);
 
-		// for (auto p : testing) {
-		// 	std::string h1 = uniqheader(p.first->get_header());
-		// 	std::string h2 = uniqheader(p.second->get_header());
-		// 	cout << "%" << h1 << endl;
-		// 	cout << "%" << bin2acgt(p.first->get_data_str()) << endl;
-		// 	cout << "!" << h1 << "!" << h2 << "!" << p.val << endl;
-		// 	cout << "@" << h2 << endl;
-		// 	cout << "@" << p.second->get_data_str() << endl;
-		// }
-//		exit(100);
+		clock.end();
+		cout << "Generating semi-synthetic sequences time: " << clock.total() << endl;
 	} else {
 		for (auto p : f_points_tr) {
 			mutate_seqs(p, 5, training, training, min_id, 100, _id, random.nextRandSeed());
@@ -537,7 +546,6 @@ void Predictor<T>::train(const vector<Point<T> *> &points, uintmax_t &_id, size_
 			mutate_seqs(p, 5, testing, testing, min_id, 100, _id, random.nextRandSeed());
 		}
 	}
-
 
 	train();
 }
@@ -574,6 +582,11 @@ std::pair<double, matrix::GLM> class_train(vector<pra<T> > &data, Feature<T>& fe
 	// for (size_t i = 0; i < sz; i++) {
 	// 	data.push_back(above[i]);
 	// 	data.push_back(below[i]);
+	// }
+	// std::string fname = "";
+	// for (std::string n : feat.feat_names()) {
+	// 	fname += "_";
+	// 	fname += n;
 	// }
 	auto pr = generate_feat_mat(data, feat, cutoff);
 	matrix::GLM glm;
@@ -683,6 +696,64 @@ void Predictor<T>::filter(std::vector<pra<T> > &vec, std::string prefix)
 	cout << "new vector size: " << vec.size() << " divided into " << bins.size() << " equal parts" << endl;
 }
 template<class T>
+void Predictor<T>::mutate_seqs(Point<T>* p, size_t num_seq, vector<pra<T> >  &thd_buf, double id_begin, double id_end, uintmax_t& _id, std::random_device::result_type seed)
+{
+	LCG newRand(seed);
+	HandleSeq h(mut_type, newRand.nextRandSeed());
+
+	std::string bin_seq = p->get_data_str();
+	std::string seq;
+	for (auto c : bin_seq) {
+		switch (c) {
+		case 0:
+			seq += 'A';
+			break;
+		case 1:
+			seq += 'C';
+			break;
+		case 2:
+			seq += 'G';
+			break;
+		case 3:
+			seq += 'T';
+			break;
+		case 'N':
+			seq += 'C';
+			break;
+		default:
+			cout << "Invalid character " << c << endl;
+			cout << "from sequence " << bin_seq << endl;
+			throw 3;
+		}
+	}
+
+	double inc = (id_end - id_begin) / num_seq;
+	for (size_t i = 0; i < num_seq; i++) {
+		double iter_id = id_begin + inc * (i + 0.5);
+		double actual_id = newRand.rand_between(iter_id, inc, id_begin, id_end);
+//		double actual_id = rand_between(iter_id, inc, id_begin, id_end);
+		int mut = round(100 - actual_id);
+		mut = (mut == 0) ? 1 : mut;
+		int spt = newRand.randMod<int>(mut);
+		auto newseq = h.mutate(seq, mut, spt);
+		std::string chrom;
+		std::ostringstream oss;
+		oss << p->get_header() << "_mut" << mut << "_" << spt << "_" << i;
+		std::string header = oss.str();
+		Point<T>* new_pt = Loader<T>::get_point(header, newseq.second, _id, k, false);
+		pra<T> pr;
+		//pr.first = p->clone();
+		pr.first = p;
+//		pr.first->set_data_str("");
+//		pr.first->set_data_str(bin_seq);
+		pr.second = new_pt;
+		pr.second->set_data_str("");
+//		pr.second->set_data_str(newseq.second);
+		pr.val = newseq.first;
+		thd_buf.push_back(pr);
+	}
+}
+template<class T>
 void Predictor<T>::mutate_seqs(Point<T>* p, size_t num_seq, vector<pra<T> > &pos_buf, vector<pra<T> > &neg_buf, double id_begin, double id_end, uintmax_t& _id, std::random_device::result_type seed)
 {
 
@@ -777,7 +848,12 @@ void Predictor<T>::train()
 	// 	cout << p.val << " ";
 	// }
 	if (mode & PRED_MODE_CLASS) {
+		Clock clock;
+		clock.begin();
 		train_class(&feat);
+		clock.end();
+		cout << "Classification training time: " << clock.total();
+
 		if (mode & PRED_MODE_REGR) {
 			// vector<Point<T>*> f_points_tr, f_points_test;
 			// for (int i = 0; i < 10; i++) {
@@ -806,16 +882,20 @@ void Predictor<T>::train()
 		}
 	}
 	if (mode & PRED_MODE_REGR) {
+		Clock clock;
+		clock.begin();
 		train_regr(&feat);
+		clock.end();
+		cout << "Regression training time: " << clock.total();
 	}
 	cout << "Training size: " << training.size() << endl;
 	cout << "Testing size: " << testing.size() << endl;
 	for (auto p : training) {
-		delete p.first;
+//		delete p.first;
 		delete p.second;
 	}
 	for (auto p : testing) {
-		delete p.first;
+//		delete p.first;
 		delete p.second;
 	}
 	cout << endl;
@@ -840,6 +920,9 @@ void Predictor<T>::train_class(Feature<T>* feat)
 //	cout << "possible feats at one step: " << possible_feats.size() << endl;
 	Progress prog(possible_feats.size() * max_num_feat, "Feature selection:");
 
+	// write_dataset(training, "glm_train.mod.txt");
+	// write_dataset(testing, "glm_testing.mod.txt");
+
 	std::ostringstream oss;
 	for (auto num_feat = 1; num_feat <= max_num_feat; num_feat++) {
 		double best_class_acc = abs_best_acc;
@@ -857,8 +940,10 @@ void Predictor<T>::train_class(Feature<T>* feat)
 			auto pr = class_train(training, *feat, id);
 			auto class_ac = class_test(testing, *feat, pr.second, id);
 			double class_accuracy = get<0>(class_ac);//sqrt(get<1>(class_ac) * get<2>(class_ac));
-			feat->remove_feature();
 			prog++;
+			// cout << num_feat << " Name: " << name << " Acc: " << class_accuracy << endl;
+			feat->remove_feature();
+
 //			cout << "Feature: " << cur_idx++ << "/" << possible_feats.size() - used_list.size() << " " << num_feat << "/" << max_num_feat << " " << name  << " acc: " << get<0>(class_ac) << " sens: " << get<1>(class_ac) << " spec: " << get<2>(class_ac) << endl;
 			if (class_accuracy > best_class_acc) {
 				best_class_acc = class_accuracy;

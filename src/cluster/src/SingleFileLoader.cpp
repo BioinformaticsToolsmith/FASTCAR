@@ -42,6 +42,15 @@ SingleFileLoader::SingleFileLoader(std::string filename)
 	in = new std::ifstream(filename);
 	is_first = true;
 }
+
+SingleFileLoader::SingleFileLoader(std::string filename, const SingleFileLoader& loader)
+{
+	in = new std::ifstream(filename);
+	in->seekg(loader.get_position());
+	is_first = loader.get_is_first();
+	buffer = loader.get_buffer();
+}
+
 std::pair<std::string, std::string*> SingleFileLoader::next()
 {
 	std::pair<std::string,std::string*> ret = std::make_pair("", (std::string*)NULL);
@@ -79,6 +88,7 @@ std::pair<std::string, std::string*> SingleFileLoader::next()
 		safe_getline(*in, buffer);
 	} while (in->good());
 	double diff = clock() - begin;
+
 //	std::cout << "next(): " << diff / CLOCKS_PER_SEC << std::endl;
 	return ret;
 }

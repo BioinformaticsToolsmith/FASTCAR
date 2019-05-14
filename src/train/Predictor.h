@@ -54,6 +54,7 @@ public:
 	uint8_t get_mode() const { return mode; }
 	pair<Feature<T>*, matrix::GLM> get_class() { return std::make_pair(new Feature<T>(*feat_c), c_glm); }
 	void mutate_seqs(Point<T>* p, size_t num_seq, vector<pra<T> > &,vector<pra<T> > & , double id_begin, double id_end, uintmax_t& _id, std::random_device::result_type seed);
+	void mutate_seqs(Point<T>* p, size_t num_seq, vector<pra<T> > &, double id_begin, double id_end, uintmax_t& _id, std::random_device::result_type seed);
 
 	std::string get_datatype() const { return datatype; }
 	int get_k() const { return k; }

@@ -15,14 +15,17 @@
 #include <sys/types.h>
 #include <sys/sysinfo.h>
 #include <cstdlib>
+#include <unordered_map>
 #include "../../nonltr/ChromListMaker.h"
 #include "DivergencePoint.h"
 #include "../../utility/AffineId.h"
 #include "Runner.h"
 #include "../../train/Predictor.h"
 #include "Loader.h"
+#include "SimpleLoader.h"
 #include "bvec.h"
 #include "Progress.h"
+#include "Datatype.h"
 #include <omp.h>
 
 
@@ -30,6 +33,9 @@ Runner::Runner(int argc, char **argv)
 {
 	get_opts(argc, argv);
 	srand(10);
+	if (similarity < 0.6) {
+		min_id = 0.2;
+	}
 }
 
 int parseLine(char* line) {
@@ -43,6 +49,7 @@ int parseLine(char* line) {
 
 void mem_used(std::string prefix)
 {
+	if (0) {
 	struct sysinfo memInfo;
 	sysinfo(&memInfo);
 	FILE* file = fopen("/proc/self/status", "r");
@@ -56,6 +63,7 @@ void mem_used(std::string prefix)
 	}
 	fclose(file);
 	cout << prefix << ": used memory: " << result << " KB" << endl;
+	}
 }
 
 int Runner::run()
@@ -63,25 +71,37 @@ int Runner::run()
 	if (pred64) {
 		k = pred64->get_k();
 	} else if (k == -1) {
+		Clock clockK;
+		clockK.begin();
 		uintmax_t total_length = 0;
 		uintmax_t total_num_seq = 0;
 		largest_count = 0;
-		Progress progress(files.size(), "Reading in sequences");
+		Progress progress(total_num_seq, "Reading in sequences");
 		uintmax_t num_seq = 10000;
+		#pragma omp parallel for
 		for (auto i = 0; i < files.size(); i++) {
 			auto f = files.at(i);
 			SingleFileLoader maker(f);
 
-			progress++;
 			uint64_t local_largest_count = 0;
 			std::pair<std::string,std::string*> pr;
-			while ((pr = maker.next()).first != "" && total_num_seq++ < num_seq) {
+			while ((pr = maker.next()).first != "" && total_num_seq < num_seq) {
+#pragma omp critical
+				{
+					progress++;
+				}
+				#pragma omp atomic
+				total_num_seq++;
+				#pragma omp atomic
 				total_length += pr.second->length();
+				delete pr.second;
 			}
 		}
 		progress.end();
+		clockK.end();
 		double avg_length = (double)total_length / total_num_seq;
 		k = std::max((int)(ceil(log(avg_length) / log(4)) - 1), 2);
+		cout << "Time for finding K: " << clockK.total() << endl;
 	}
 	cout << "K: " << k << endl;
 // #pragma omp parallel for reduction(max:largest_count)
@@ -108,22 +128,28 @@ int Runner::run()
 	uint64_t cap = 10000;
 	std::vector<ChromosomeOneDigit* > sequences(cap);
 	if (pred64 == NULL || Runner::get_datatype() == "") {
+		Clock clockDT;
+		clockDT.begin();
 		uint64_t idx = 0;
 		Progress progress(cap, "Reading in sequences");
 		uint64_t largest_count = 0;
 
 
+		#pragma omp parallel for
 		for (auto i = 0; i < files.size(); i++) {
 			auto f = files.at(i);
 			SingleFileLoader maker(f);
 			ChromosomeOneDigitDna* chrom = NULL;
 			while ((chrom = maker.nextChrom()) != NULL && idx < cap) {
-
-				sequences[idx] = chrom;
-				idx++;
-				progress++;
+#pragma omp critical
+				{
+					sequences[idx] = chrom;
+					idx++;
+					progress++;
+				}
 			}
 		}
+		progress.end();
 		sequences.resize(idx);
 
 #pragma omp parallel for reduction(max:largest_count)
@@ -137,7 +163,9 @@ int Runner::run()
 				largest_count = l_count;
 			}
 		}
-		progress.end();
+		clockDT.end();
+		cout << "Time for computing datatype: " << clockDT.total() << endl;
+
 	} else if (pred64 != NULL) {
 		sequences.clear();
 		Runner::set_datatype(pred64->get_datatype());
@@ -155,47 +183,76 @@ int Runner::run()
 			largest_count = std::numeric_limits<uint64_t>::max();
 		}
 	}
+	int res = 1;
 	if (largest_count <= std::numeric_limits<uint8_t>::max()) {
 		Runner::set_datatype("uint8_t");
 		cout << "Using 8 bit histograms" << endl;
-		return do_run<uint8_t>(sequences);
+		res = do_run<uint8_t>(sequences);
 	} else if (largest_count <= std::numeric_limits<uint16_t>::max()) {
 		Runner::set_datatype("uint16_t");
 		cout << "Using 16 bit histograms" << endl;
-		return do_run<uint16_t>(sequences);
+		res = do_run<uint16_t>(sequences);
 	} else if (largest_count <= std::numeric_limits<uint32_t>::max()){
 		Runner::set_datatype("uint32_t");
 	       	cout << "Using 32 bit histograms" << endl;
-		return do_run<uint32_t>(sequences);
+		res = do_run<uint32_t>(sequences);
 	} else if (largest_count <= std::numeric_limits<uint64_t>::max()) {
 		Runner::set_datatype("uint64_t");
 	       	cout << "Using 64 bit histograms" << endl;
-		return do_run<uint64_t>(sequences);
+		res = do_run<uint64_t>(sequences);
 	} else {
 		throw "Too big sequence";
 	}
+	// if (all_vs_all) {
+	// 	int n_threads = omp_get_max_threads();
+	// 	uintmax_t tot_nl = 0;
+	// 	std::ostringstream cmd;
+	// 	cmd << "cat ";
+	// 	for (int i = 0; i < n_threads; i++) {
+	// 		std::ostringstream oss;
+	// 		oss << output << i << ".list";
+	// 		std::ifstream in(oss.str());
+	// 		cmd << output << i << " ";
+	// 		uintmax_t nl = 0;
+	// 		std::string s;
+	// 		while (std::getline(in, s)) {
+	// 			nl++;
+	// 		}
+	// 		#pragma omp atomic
+	// 		tot_nl += nl;
+	// 	}
+	// 	cmd << "| sort -k1 -k2 -n > " << output;
+	// 	system(cmd.str().c_str());
+	// }
+	return res;
 }
 
 
 void Runner::usage(std::string progname) const
 {
 	int num_threads = omp_get_max_threads();
-	std::cout << "Usage: " << progname << " *.fasta --query queryFile.fasta --id 0.90 [optional_arguments]" << std::endl << std::endl;
+	std::cout << "Usage: " << progname << " *.fasta --query queryFile.fasta [optional_arguments]" << std::endl << std::endl;
+	std::cout << "or:    " << progname << " *.fasta --all-vs-all [optional_arguments]" << std::endl << std::endl;
 	std::cout << "Options: " << std::endl;
-	std::cout << "\t" << "--id        "<<"\t" <<"identityValue" << "\t\t" << "Use this alignment identity (0.0 to 1.0) for classification" << std::endl;
+	std::cout << "\t" << "--id        "<<"\t" <<"identityValue" << "\t\t" << "Use this alignment identity (0.0 to 1.0) for the cutoff for classification" << std::endl;
 	std::cout << "\t" << "-q|--query  "<<"\t" <<"queryFile.fasta" << "\t\t" << "Run the database against this query file" << std::endl;
 	std::cout << "\t" << "-k|--kmer   "<<"\t" << "N"<<"\t\t\t" << "Usually calculated by going through the data and finding the ceil(log_4(Length_avg))-1,"<< std::endl;
 	std::cout << "\t\t\t\t\t\t    " << "so if provided, it can save computational time. Increasing the k-mer increases memory usage four-fold."<< std::endl;
-        std::cout << "\t" << "--datatype  "<<"\t" <<"uintX_t" << "\t\t\t" << "If provided, instead of running through the data another time," << std::endl;
-	std::cout << "\t\t\t\t\t\t    " << "provide the maximum data type to not overflow, one of {uint8_t, uint16_t, uint32_t, uint64_t}" << std::endl;
-        std::cout << "\t" << "-c|--chunk  "<<"\t" << chunk_size << "\t\t\t" << "Process N (a positive integer number) sequences at once in the multithreading model." << std::endl;
-	std::cout << "\t" << "--dump      "<<"\t" <<"weights.txt" << "\t\t" << "Instead of running, only train the model(s) and dump the weights" <<  std::endl;
-	std::cout << "\t" << "--no-format "<<"\t\t\t\t" << "Print the full header instead of the abbreviated header when printing output" <<  std::endl;
 
+        std::cout << "\t" << "-c|--chunk  "<<"\t" << chunk_size << "\t\t\t" << "Process N (a positive integer number) sequences at once in the multithreading model." << std::endl;
+	std::cout << "\t\t\t\t\t\t    " << "This may have to be adjusted based on the sequence nucleotide length for optimal runtime." << std::endl;
+	std::cout << "\t\t\t\t\t\t    " << "The parameter trades off memory for speed. The larger the chunk size is, the more sequences can be computed at once." << std::endl;
+	std::cout << "\t" << "--dump      "<<"\t" <<"weights.txt" << "\t\t" << "Instead of running, only train the model(s) and dump the weights" <<  std::endl;
+	std::cout << "\t" << "-r|--recover"<<"\t" <<"weights.txt" << "\t\t" << "Instead of training, use a pre-computed weights file to avoid re-training" << std::endl;
+	std::cout << "\t" << "--no-format "<<"\t\t\t\t" << "Print the full header instead of the abbreviated header when printing output" <<  std::endl;
+	std::cout << "\t" << "--all-vs-all" << "\t\t\t\t" << "Instead of searching against a query, compute similarities of all sequences against each other" << endl;
 
 	std::cout << "\t" << "-o|--output "<<"\t" <<"output.search" << "\t\t" << "Output file, to which numbers 0 through [num_threads] are appended. Each file contains data computed by each thread." << std::endl;
-        std::cout << "\t" << "-r|--recover"<<"\t" <<"weights.txt" << "\t\t" << "Instead of training, use a pre-computed weights file to avoid re-training" << std::endl;
+
 	std::cout << "\t" << "-f|--feat   "<<"\t" <<"fast" << "\t\t\t"<<"Use a small,fast set of possible features (fast) or a larger, slower-to-train set of possible features (slow)"<<std::endl;
+
+	std::cout << "\t" << "--datatype  "<<"\t" <<"X" << "\t\t\t" << "If provided, instead of running through the data another time," << std::endl;
+	std::cout << "\t\t\t\t\t\t    " << "provide the maximum data type to not overflow, one of {8, 16, 32, 64}" << std::endl;
 	std::cout << "\t" << "-m|--mode   "<<"\t" <<"rc"   << "\t\t\t"<<"Use the provided mode, either \"c\" for classification (print all pairs above threshold, but no provided alignment value)," << std::endl;
 	std::cout << "\t\t\t\t\t\t    " << "\"r\" for regression only, meaning all pairs are printed, or" << std::endl;
 	std::cout << "\t\t\t\t\t\t    " << "\"rc\" for both (default), printing all pairs above the threshold with alignment identity predictions." <<  std::endl;
@@ -205,6 +262,10 @@ void Runner::usage(std::string progname) const
 	std::cout << "\t\t\t\t\t\t    " << "Options for mutation type are \"single\", \"nonsingle-typical\", \"both\" (for single and nonsingle-typical)," << std::endl;
 	std::cout << "\t\t\t\t\t\t    " << "\"nonsingle-all\", and \"all\" (single, nonsingle, and atypical nonsingle)." <<  std::endl;
 	std::cout << "\t" << "-t|--threads"<<"\t" << num_threads << "\t\t\t" << "Set the number of threads used from this number to a lower number." << std::endl << std::endl;
+	std::cout << "\t" << "-l|--list" << "\t" << "<(find . -name '*.fa')\tRead a list of input files from a file: here the example is BASH process substitution" << std::endl;
+        std::cout << "\t" << "--qlist" << "\t\t" << "<(find . -name '*.fa')\tRead a list of query files from a file" << std::endl;
+													std::cout << std::endl;
+
 #ifndef VERSION
         #define VERSION "(undefined)"
         #endif
@@ -221,7 +282,11 @@ void Runner::get_opts(int argc, char **argv)
 {
 	for (int i = 1; i < argc; i++) {
 		string arg = argv[i];
-		if (arg == "--id" && i + 1 < argc) {
+		if (arg == "--all-vs-all" || arg == "--all-versus-all") {
+			all_vs_all = true;
+		// } else if (arg == "--num-templates" && i + 1 < argc) {
+		// 	num_templates = stoi(argv[++i]);
+		} else if (arg == "--id" && i + 1 < argc) {
 			try {
 				std::string opt = argv[i+1];
 				similarity = std::stod(opt);
@@ -285,6 +350,18 @@ void Runner::get_opts(int argc, char **argv)
 			} else {
 				usage(*argv);
 				exit(EXIT_FAILURE);
+			}
+		} else if ((arg == "--qlist") && i + 1 < argc) {
+			std::ifstream in(argv[++i]);
+			std::string s;
+			while (getline(in, s)) {
+				struct stat st;
+				if (stat(s.c_str(), &st) == 0 && S_ISREG(st.st_mode)) {
+					qfiles.push_back(s);
+				} else {
+					cerr << "File " << s << " is not a file" << endl;
+					exit(EXIT_FAILURE);
+				}
 			}
 		} else if ((arg == "-r" || arg == "--recover") && i + 1 < argc) {
 			recover = true;
@@ -364,18 +441,43 @@ void Runner::get_opts(int argc, char **argv)
 		} else if ((arg == "-h") || (arg == "--help")) {
 			usage(*argv);
 			exit(EXIT_FAILURE);
+		} else if ((arg == "--list" || arg == "-l") && i + 1 < argc) {
+			ifstream in(argv[++i]);
+			std::string s;
+			while (std::getline(in, s)) {
+				struct stat st;
+				if (stat(s.c_str(), &st) == 0 && S_ISREG(st.st_mode)) {
+					files.push_back(s);
+				} else {
+					cerr << "File " << s << " is not a file" << endl;
+					exit(EXIT_FAILURE);
+				}
+			}
+
 		} else {
 			struct stat st;
 			if (stat(argv[i], &st) == 0 && S_ISREG(st.st_mode)) {
 				files.push_back(argv[i]);
 			} else {
-				usage(*argv);
+				cerr << "File " << argv[i] << " is not a file" << endl;
 				exit(EXIT_FAILURE);
 			}
 		}
 	}
+
 	if (files.empty()) {
-		usage(*argv);
+		cerr << "Must provide file(s)" << endl;
+		exit(EXIT_FAILURE);
+	}
+	if (all_vs_all) {
+		qfiles = files;
+	}
+        set<std::string> file_list(files.begin(), files.end());
+	set<std::string> qfile_list(qfiles.begin(), qfiles.end());
+	files.assign(file_list.begin(), file_list.end());
+	qfiles.assign(qfile_list.begin(), qfile_list.end());
+	if (qfiles.empty()) {
+		cerr << "Must provide query file(s) or use all versus all search" << endl;
 		exit(EXIT_FAILURE);
 	}
 }
@@ -472,6 +574,60 @@ void work(const std::vector<Point<T>*> &queries, const std::vector<Point<T>*> &p
 }
 
 template<class T>
+void work_all(const std::vector<Point<T>*> &queries, const std::vector<Point<T>*> &pts, double similarity, Predictor<T>* pred, std::string delim, std::ofstream &out, uintmax_t &num_pred_pos, bool format)
+{
+	if (pts.empty()) {
+		return;
+	}
+	uint8_t mode = pred->get_mode();
+
+
+	for (auto query : queries) {
+
+		size_t q_len = query->get_length();
+		size_t begin_length = q_len * similarity;
+		size_t end_length = q_len / similarity;
+		size_t start = bin_search(pts, 0, pts.size()-1,
+					  begin_length);
+		for (size_t i = start;
+		     i < pts.size() && pts[i]->get_length() <= end_length;
+		     i++) {
+			//out << "Writing to block " << 	omp_get_thread_num() << " for query " << query->get_index() << " for db index " << pts[i]->get_index() << endl;
+			uintmax_t pi = pts[i]->get_index();
+			uintmax_t qi = query->get_index();
+			double sim = 0.0;
+			bool cls = true;
+			if (pi < qi) {
+				continue;
+			}
+			if (mode & PRED_MODE_CLASS) {
+				cls = pred->close(pts[i], query);
+
+			}
+
+
+			if (!cls) {
+				continue;
+			}
+			num_pred_pos++;
+			if (mode & PRED_MODE_REGR) {
+				sim = pred->similarity(pts[i], query);
+			} else {
+				sim = 1;
+			}
+			if (mode & PRED_MODE_CLASS) {
+//				sim = (sim > similarity) ? sim : 0;
+			}
+//			out << min(pi,qi) << " " << max(pi,qi) << " " << 100 * sim << '\n';
+			if (sim > 0) {
+				out << min(pi,qi) << " " << max(pi,qi) << " " << 100 * sim << '\n';
+			}
+		}
+//		iout << query->get_index() << " " << query->get_header() << '\n';
+	}
+}
+
+template<class T>
 int Runner::do_run(std::vector<ChromosomeOneDigit* > &seqs)
 {
 	using DNA=ChromosomeOneDigit;
@@ -535,14 +691,14 @@ int Runner::do_run(std::vector<ChromosomeOneDigit* > &seqs)
 			similarity = 0.9;
 		}
 
-		pred = new Predictor<T>(k, similarity, mode, feats, mut_type, 4);
-		auto before = clock();
+		pred = new Predictor<T>(k, similarity, mode, feats, mut_type, min_num_feat, max_num_feat, min_id);
+		Clock clockTrain;
+		clockTrain.begin();
 		mem_used("before predictor training");
 		pred->train(trpoints, _id, sample_size);
 
-		double elapsed = (clock() - before);
-		elapsed /= CLOCKS_PER_SEC;
-		cout << "Training time: " << elapsed << endl;
+		clockTrain.end();
+		cout << "Training time: " << clockTrain.total() << endl;
 		for (auto p : trpoints) {
 			delete p;
 		}
@@ -554,61 +710,200 @@ int Runner::do_run(std::vector<ChromosomeOneDigit* > &seqs)
 	}
 	mem_used("after predictor training");
 
+
+	if (all_vs_all) {
+		run_all(*pred);
+	} else {
+		run_search(*pred);
+	}
+	delete pred;
+	return 0;
+}
+
+template<class T>
+void Runner::run_search(Predictor<T>& pred)
+{
+	string delim = "\t";
+	int n_threads = omp_get_max_threads();
+	if (!format) {
+		delim = "!";
+	}
 	std::vector<std::ofstream> output_list;
 	for (int i = 0; i < n_threads; i++) {
 		std::ostringstream oss;
 		oss << output << i;
 		output_list.emplace_back(oss.str());
 	}
-
-
-	string delim = "\t";
-	if (!format) {
-		delim = "!";
-	}
-	uint64_t query_id_start = num_points;
-	int num_query = num_points;
-	Loader<T> qloader(qfiles, n_threads * num_points, chunk_size, 1, k, query_id_start);
+	SimpleLoader<T> qloader(qfiles, k);
 	mem_used("before loop");
 	uintmax_t num_pred_pos = 0;
-	while (!qloader.done()) {
-		qloader.preload(0);
-		auto queries = qloader.load_next(0);
-		Loader<T> loader(files, 0, chunk_size, n_threads, k);
+	Clock clockCompute;
 
+	for (uintmax_t block_index = 0; !qloader.done(); block_index++) {
+		std::vector<Point<T>*> queries;
+		qloader.load_next(chunk_size, queries, false);
 
-		while (!loader.done()) {
-			int n_iter = n_threads;
-			mem_used("during inner loop");
-			for (int h = 0; h < n_iter; h++) {
-				loader.preload(h);
-			}
-			#pragma omp parallel for
-			for (int h = 0; h < n_iter; h++) {
-				int tid = omp_get_thread_num();
-				auto pts = loader.load_next(tid);
-				std::sort(std::begin(pts), std::end(pts), [](Point<T>*a, Point<T>*b) {
-						return a->get_length() < b->get_length();
-					});
-				work(queries, pts, similarity, pred, delim, output_list[tid], num_pred_pos, format);
-				for (auto p : pts) {
-					delete p;
+//			uintmax_t db_start = all_vs_all ? block_index * chunk_size + q_idx : 0;
+		SimpleLoader<T> db_loader(files, k);
+
+		for (int db_idx = 0; !db_loader.done(); db_idx++) {
+			std::vector<Point<T>*> pts;
+			db_loader.load_next(chunk_size, pts, false);
+
+			Progress progress(queries.size() * pts.size(), "Computing similarity");
+			clockCompute.begin();
+#pragma omp parallel for schedule(dynamic)
+			for (uintmax_t q_idx = 0; q_idx < queries.size(); q_idx++) {
+				auto q = queries.at(q_idx);
+				size_t q_len = q->get_length();
+				size_t begin_length = q_len * similarity;
+				size_t end_length = q_len / similarity;
+
+				for (int h = 0; h < pts.size(); h++) {
+					int tid = omp_get_thread_num();
+					auto p = pts.at(h);
+					auto len = p->get_length();
+					if (len >= begin_length && len <= end_length && (mode & PRED_MODE_CLASS ? pred.close(p, q) : 1)) {
+						double sim = 1;
+						if (mode & PRED_MODE_REGR) {
+							sim = pred.similarity(p, q);
+						}
+						if (sim > 0) {
+							if (format) {
+								output_list[tid] << format_header(q->get_header()) << delim << format_header(p->get_header()) << delim << 100 * sim << endl;
+							} else {
+								output_list[tid] << q->get_header() << delim << p->get_header() << delim << 100 * sim << endl;
+							}
+						}
+					}
+					#pragma omp critical
+					progress++;
+//					work(queries, pts, similarity, pred, delim, output_list[tid], num_pred_pos, format);
 				}
-			}
-		}
 
+			}
+			for (auto p : pts) {
+				delete p;
+			}
+			clockCompute.end();
+			progress.end();
+
+		}
 		for (auto q : queries) {
 			delete q;
 		}
+
 		mem_used("mid loop");
 	}
+	cout << "Time to compute alignments: " << clockCompute.total() << endl;
 	mem_used("after loop");
 	cout << "# of predicted positive: " << num_pred_pos << endl;
 	std::string warn = Loader<T>::get_warning();
 	if (warn != "") {
 		cout << warn << endl;
 	}
-	return 0;
+}
+template<class T>
+void Runner::run_all(Predictor<T>& pred)
+{
+	string delim = "\t";
+	int n_threads = omp_get_max_threads();
+	if (!format) {
+		delim = "!";
+	}
+	std::vector<std::ofstream> output_list;
+	for (int i = 0; i < n_threads; i++) {
+		std::ostringstream oss;
+		oss << output << i;
+		output_list.emplace_back(oss.str());
+	}
+	SimpleLoader<T> qloader(qfiles, k);
+	mem_used("before loop");
+	Clock clockCompute;
+	uintmax_t num_pred_pos = 0;
+	for (uintmax_t query_block_index = 0; !qloader.done(); query_block_index++) {
+		cout << "Loading query chunk " << query_block_index << endl;
+		std::vector<Point<T>*> queries;
+		qloader.load_next(chunk_size, queries, false);
+		SimpleLoader<T> db_loader(qloader);
+
+		for (int db_block_index = query_block_index;
+		     db_block_index == query_block_index || !db_loader.done();
+		     db_block_index++) {
+			std::vector<Point<T>*> *pts = NULL;
+			size_t loop_start;
+			if (db_block_index == query_block_index) {
+				cout << "Loading DB chunk " << db_block_index << " from query chunk " << query_block_index << endl;
+				pts = &queries;
+			} else {
+				cout << "Loading DB chunk " << db_block_index << endl;
+				pts = new std::vector<Point<T>*>();
+				db_loader.load_next(chunk_size, *pts, false);
+
+			}
+//			cout << "Header " << pts->at(0)->get_header() << " index: " << db_block_index << endl;
+			cout << "Q_block: " << query_block_index << " DB_block: " << db_block_index << endl;
+			cout << "Q.size(): " << queries.size() << " DB.size(): " << pts->size() << endl;
+
+			clockCompute.begin();
+			Progress progress(queries.size() * pts->size(), "Computing similarity");
+#pragma omp parallel for schedule(dynamic)
+			for (uintmax_t q_id = 0; q_id < queries.size(); q_id++) {
+				auto q = queries.at(q_id);
+				size_t q_len = q->get_length();
+				size_t begin_length = q_len * similarity;
+				size_t end_length = q_len / similarity;
+
+				size_t loop_idx; // The starting point for the inner for loop.
+				// The special case is when the blocks are the same; we start where the query is located
+				if (db_block_index == query_block_index) {
+					loop_idx = q_id;
+				} else {
+					loop_idx = 0;
+				}
+				for (uintmax_t p_id = loop_idx; p_id < pts->size(); p_id++) {
+					int tid = omp_get_thread_num();
+					auto p = pts->at(p_id);
+					auto len = p->get_length();
+					if (len >= begin_length && len <= end_length && (mode & PRED_MODE_CLASS ? pred.close(p, q) : 1)) {
+						double sim = 1;
+						if (mode & PRED_MODE_REGR) {
+							sim = pred.similarity(p, q);
+						}
+						if (sim > 0) {
+							if (format) {
+								output_list.at(tid) << format_header(q->get_header()) << delim << format_header(p->get_header()) << delim << 100 * sim << endl;
+							} else {
+								output_list.at(tid) << q->get_header() << delim << p->get_header() << delim << 100 * sim << endl;
+							}
+						}
+					}
+				}
+				#pragma omp critical
+				progress += pts->size();
+			}
+			progress.end();
+			if (db_block_index != query_block_index) {
+				for (auto p : *pts) {
+					delete p;
+				}
+				delete pts;
+			}
+			clockCompute.end();
+
+		}
+		for (auto q : queries) {
+			delete q;
+		}
+		mem_used("mid loop");
+	}
+	cout << "Time to compute alignments: " << clockCompute.total() << endl;
+	mem_used("after loop");
+	cout << "# of predicted positive: " << num_pred_pos << endl;
+	std::string warn = Loader<T>::get_warning();
+	if (warn != "") {
+		cout << warn << endl;
+	}
 }
 
 
@@ -636,14 +931,12 @@ void Runner::print_output(const map<Point<T>*, vector<Point<T>*>*> &partition) c
 }
 
 
-std::string _runner_datatype = "";
-
 std::string Runner::get_datatype()
 {
-	return _runner_datatype;
+	return Datatype::get();
 }
 
 void Runner::set_datatype(std::string s)
 {
-	_runner_datatype = s;
+	Datatype::set(s);
 }

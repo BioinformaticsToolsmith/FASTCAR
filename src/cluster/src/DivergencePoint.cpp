@@ -200,6 +200,16 @@ void DivergencePoint<T>::display() const
 }
 
 template<class T>
+void DivergencePoint<T>::display(std::ofstream& out)
+{
+	unsigned size = points.size();
+	for (unsigned i = 0; i < size; i++) {
+		out << (uint64_t)points.at(i) << " ";
+	}
+	out << std::endl;
+}
+
+template<class T>
 void DivergencePoint<T>::zero()
 {
 	for (auto &i : points) {

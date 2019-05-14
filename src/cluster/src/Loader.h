@@ -17,7 +17,6 @@
 #include "Point.h"
 #include "DivergencePoint.h"
 #include "../../nonltr/KmerHashTable.h"
-// Add by Hani Z. Girgis, PhD on Oct 2, 2018
 #include "../../nonltr/ChromosomeOneDigit.h"
 #include "../../nonltr/ChromosomeOneDigitDna.h"
 #include "../../nonltr/ChromosomeOneDigitProtein.h"
@@ -61,14 +60,14 @@ public:
 	}
 
 	// single threaded
-	void preload(int tnum);
+	void preload(int tnum, std::string prefix="");
 
 	bool done() const;
 	// multi-thread accessible
-	std::vector<Point<T>*> load_next(int tid);
+	void load_next(int tid, std::vector<Point<T>*> &);
 
-	static Point<T>* get_point(std::string header, const std::string &base, uintmax_t& id, int k);
-	static Point<T>* get_point(ChromosomeOneDigit* dna, uintmax_t& id, int k);
+	static Point<T>* get_point(std::string header, const std::string &base, uintmax_t& id, int k, bool set_seq=true);
+	static Point<T>* get_point(ChromosomeOneDigit* dna, uintmax_t& id, int k, bool set_seq=true);
 
 	static void fill_table(KmerHashTable<unsigned long, T> &table, ChromosomeOneDigit *chrom, std::vector<T>& values);
 	static std::string get_warning();

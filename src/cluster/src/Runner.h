@@ -28,6 +28,8 @@ public:
 private:
 	void usage(std::string progname) const;
 	template<class T> int do_run(std::vector<ChromosomeOneDigit*> &sequences);
+	template<class T> void run_search(Predictor<T>& pred);
+	template<class T> void run_all(Predictor<T>& pred);
 	template<class T> void print_output(const map<Point<T>*, vector<Point<T>*>*> &m) const;
 	static void set_datatype(std::string);
 	int k = -1;
@@ -35,6 +37,7 @@ private:
 	double similarity = -1;
 	long largest_count = 0;
 	bool align = false;
+	bool all_vs_all = false;
 	bool recover = false;
 	int sample_size = 300;
 	int mut_type = HandleSeq::SINGLE;
@@ -49,7 +52,9 @@ private:
 	string dump_str = "weights.txt";
 	void get_opts(int argc, char** argv);
 	Predictor<uint64_t> *pred64 = NULL;
-
+	int min_num_feat = 4;
+	int max_num_feat = 5;
+	double min_id = 0.35;
 
 };
 #endif

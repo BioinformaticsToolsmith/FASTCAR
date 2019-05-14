@@ -23,6 +23,7 @@ public:
 	void operator+=(Point<T>& p);
 	void set(Point<T>& p);
 	void display() const;
+	void display(std::ofstream& of);
 	void zero();
 	void addOne();
 	void subOne();
